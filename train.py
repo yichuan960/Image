@@ -23,6 +23,11 @@ from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
 from robust_loss import calculate_mask
+from torchvision.transforms import ToPILImage
+import os 
+
+
+
 try:
     from torch.utils.tensorboard import SummaryWriter
     TENSORBOARD_FOUND = True
@@ -101,7 +106,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         gt_image = gt_image * old_mask
         image = image * old_mask
 
-        
 
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
@@ -145,6 +149,15 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
+
+    path = os.path.join(scene.model_path, 'masks') 
+    os.mkdir(path) 
+    for i, mask in enumerate(all_masks):
+        to_pil = ToPILImage()
+        image = to_pil(mask)
+        image.save(f'{scene.model_path}/masks/mask_{i}.png')
+        
+
 
 def prepare_output_and_logger(args):    
     if not args.model_path:

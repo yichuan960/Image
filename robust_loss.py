@@ -40,9 +40,9 @@ def calculate_mask(residuals):
     padding_indexing = [padding[2]-4,-(padding[3]-4), padding[0]-4,-(padding[1]-4)]
 
     if padding_indexing[1] == 0:
-        padding_indexing[1] = has_inlier_neighbors.shape[1]
+        padding_indexing[1] = has_inlier_neighbors.shape[1] + padding_indexing[0]
     if padding_indexing[3] == 0:
-        padding_indexing[3] = has_inlier_neighbors.shape[2]
+        padding_indexing[3] = has_inlier_neighbors.shape[2] + padding_indexing[2]
 
     is_inlier_patch = is_inlier_patch[ padding_indexing[0]:padding_indexing[1], padding_indexing[2]:padding_indexing[3] ]
 
