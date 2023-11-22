@@ -25,6 +25,7 @@ from arguments import ModelParams, PipelineParams, OptimizationParams
 from robust_loss import calculate_mask
 from torchvision.transforms import ToPILImage
 import os 
+import numpy as np
 
 
 
@@ -57,7 +58,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
     # init masks
     all_masks = torch.ones((len(viewpoint_stack), viewpoint_stack[0].image_height, viewpoint_stack[0].image_width), dtype=torch.float32, device="cuda")
-    
+    uid_to_image_name = np.empty(len(viewpoint_stack), dtype=object)
 
     for iteration in range(first_iter, opt.iterations + 1):        
         if network_gui.conn == None:
@@ -111,6 +112,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
         loss.backward()
         all_masks[viewpoint_cam.uid] = mask
+        uid_to_image_name[viewpoint_cam.uid] = viewpoint_cam.image_name
         iter_end.record()
 
         with torch.no_grad():
@@ -152,10 +154,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
     path = os.path.join(scene.model_path, 'masks') 
     os.mkdir(path) 
+
     for i, mask in enumerate(all_masks):
         to_pil = ToPILImage()
         image = to_pil(mask)
-        image.save(f'{scene.model_path}/masks/mask_{i}.png')
+        image.save(f'{scene.model_path}/masks/mask_{uid_to_image_name[i]}.png')
         
 
 
@@ -219,6 +222,7 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
         torch.cuda.empty_cache()
 
 if __name__ == "__main__":
+    torch.cuda.empty_cache()
     # Set up command line argument parser
     parser = ArgumentParser(description="Training script parameters")
     lp = ModelParams(parser)
