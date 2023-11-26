@@ -107,13 +107,21 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         gt_image = gt_image * old_mask
         image = image * old_mask
 
-
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
         loss.backward()
         all_masks[viewpoint_cam.uid] = mask
         uid_to_image_name[viewpoint_cam.uid] = viewpoint_cam.image_name
         iter_end.record()
+        if iteration % 1000 == 0:
+            if not os.path.exists(os.path.join(scene.model_path, 'masks')):
+                path = os.path.join(scene.model_path, 'masks')
+                os.mkdir(path) 
+
+            for i, mask in enumerate(all_masks):
+                to_pil = ToPILImage()
+                image = to_pil(mask)
+                image.save(f'{scene.model_path}/masks/mask_{iteration}_{uid_to_image_name[i]}.png')
 
         with torch.no_grad():
             # Progress bar
@@ -151,14 +159,15 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
-
-    path = os.path.join(scene.model_path, 'masks') 
-    os.mkdir(path) 
+    
+    if not os.path.exists(os.path.join(scene.model_path, 'masks')):
+        path = os.path.join(scene.model_path, 'masks') 
+        os.mkdir(path) 
 
     for i, mask in enumerate(all_masks):
         to_pil = ToPILImage()
         image = to_pil(mask)
-        image.save(f'{scene.model_path}/masks/mask_{uid_to_image_name[i]}.png')
+        image.save(f'{scene.model_path}/masks/mask_end_{uid_to_image_name[i]}.png')
         
 
 
