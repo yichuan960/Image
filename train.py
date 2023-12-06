@@ -22,10 +22,12 @@ from tqdm import tqdm
 from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
-from robust_loss import calculate_mask
+from robust_loss import calculate_mask, calculate_mask_proba, RobustLoss
 from torchvision.transforms import ToPILImage
 import os 
 import numpy as np
+import gc
+import torch.optim as optim
 
 
 
@@ -36,6 +38,8 @@ except ImportError:
     TENSORBOARD_FOUND = False
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
+    gc.collect()
+    torch.cuda.empty_cache()
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
@@ -59,6 +63,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     # init masks
     all_masks = torch.ones((len(viewpoint_stack), viewpoint_stack[0].image_height, viewpoint_stack[0].image_width), dtype=torch.float32, device="cuda")
     uid_to_image_name = np.empty(len(viewpoint_stack), dtype=object)
+    loss_function = RobustLoss()
+
+    optimizer_thresholds = optim.SGD([{'params': loss_function.parameters()}], lr=0.1)
+
 
     for iteration in range(first_iter, opt.iterations + 1):        
         if network_gui.conn == None:
@@ -100,16 +108,28 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
-        
-        residuals = torch.linalg.vector_norm(image - gt_image, dim=(0))
-        mask = calculate_mask(residuals)
-        old_mask = all_masks[viewpoint_cam.uid]
-        gt_image = gt_image * old_mask
-        image = image * old_mask
+
+        # break gradient from rendering
+        with torch.no_grad():
+            residuals = torch.linalg.vector_norm(image - gt_image, dim=(0))
+
+        mask = loss_function(residuals)
+        #old_mask = all_masks[viewpoint_cam.uid]
+        #gt_image = gt_image * old_mask
+        #image = image * old_mask
+        gt_image = gt_image * mask
+        image = image * mask
 
         Ll1 = l1_loss(image, gt_image)
-        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+        lambda_reg = 1e-11
+        #lambda_reg = 0
+        regularization = lambda_reg * torch.sum((1-mask).flatten())**2
+        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image)) + regularization
+
+        optimizer_thresholds.zero_grad()
         loss.backward()
+        optimizer_thresholds.step()
+
         all_masks[viewpoint_cam.uid] = mask
         uid_to_image_name[viewpoint_cam.uid] = viewpoint_cam.image_name
         iter_end.record()
