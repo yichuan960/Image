@@ -121,13 +121,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         image = image * mask
 
         Ll1 = l1_loss(image, gt_image)
-        lambda_reg = 1e-11
+        lambda_reg = 5*1e-12
         #lambda_reg = 0
         regularization = lambda_reg * torch.sum((1-mask).flatten())**2
-        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image)) + regularization
+        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image)) 
+        loss_mask = loss + regularization
 
         optimizer_thresholds.zero_grad()
-        loss.backward()
+        loss_mask.backward()
         optimizer_thresholds.step()
 
         all_masks[viewpoint_cam.uid] = mask
