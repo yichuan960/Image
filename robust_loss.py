@@ -137,9 +137,9 @@ class RobustLoss(torch.nn.Module):
         self.kernel_3 = torch.tensor([[1/9, 1/9, 1/9], [1/9, 1/9, 1/9], [1/9, 1/9, 1/9]]).unsqueeze(0).unsqueeze(0).cuda()
 
     def forward(self, residuals):
-        #median_residual = torch.median(residuals)
-        #inlier_loss = torch.where(residuals <= median_residual, 1.0, 1e-5)
-        inlier_loss = residuals - torch.median(residuals.flatten())
+        median_residual = torch.median(residuals)
+        inlier_loss = torch.where(residuals <= median_residual, 1.0, 1e-5)
+        #inlier_loss = residuals - torch.median(residuals.flatten())
         
         has_inlier_neighbors = torch.unsqueeze(inlier_loss, 0)
         has_inlier_neighbors = torch.nn.functional.conv2d(has_inlier_neighbors, self.kernel_3, padding = "same")
