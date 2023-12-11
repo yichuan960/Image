@@ -1,3 +1,4 @@
 {
-  "save_mask_interval": 5000
+  "save_mask_interval": 5000,
+  "test_size": 19
 }
