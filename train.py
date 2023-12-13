@@ -63,9 +63,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     # init masks
     all_residuals = torch.ones((len(viewpoint_stack), viewpoint_stack[0].image_height, viewpoint_stack[0].image_width), dtype=torch.float32, device="cuda")
     uid_to_image_name = np.empty(len(viewpoint_stack), dtype=object)
-    loss_function = RobustLoss()
+    calculate_mask = RobustLoss()
 
-    optimizer_thresholds = optim.SGD([{'params': loss_function.parameters()}], lr=0.1)
+    optimizer_thresholds = optim.SGD([{'params': calculate_mask.parameters()}], lr=0.1)
 
 
     for iteration in range(first_iter, opt.iterations + 1):        
@@ -113,18 +113,19 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         with torch.no_grad():
             residuals = torch.linalg.vector_norm(image - gt_image, dim=(0))
 
-        #mask = loss_function(residuals)
+        #mask = calculate_mask(residuals)
         old_residual = all_residuals[viewpoint_cam.uid]
-        mask = loss_function(old_residual)
+        mask = calculate_mask(old_residual)
         #gt_image = gt_image * old_mask
         #image = image * old_mask
-        #gt_image = gt_image * mask
-        #image = image * mask
+        gt_image = gt_image * mask
+        image = image * mask
 
         Ll1 = l1_loss(image, gt_image)
-        lambda_reg = 5*1e-12
+        lambda_reg = 1e-1 #withoout additional layers
+        #lambda_reg = 1.5*1e-1
         #lambda_reg = 0
-        regularization = lambda_reg * torch.sum((1-mask).flatten())**2
+        regularization = lambda_reg * torch.mean((1-mask).flatten())
         loss_mask = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image)) + regularization
 
         optimizer_thresholds.zero_grad()
@@ -145,9 +146,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 path = os.path.join(scene.model_path, 'masks')
                 os.mkdir(path) 
 
-            for i, mask in enumerate(all_residuals):
+            for i, mask in enumerate(all_residuals[:50]):
                 to_pil = ToPILImage()
-                image = to_pil(loss_function(mask))
+                image = to_pil(calculate_mask(mask))
                 image.save(f'{scene.model_path}/masks/mask_{iteration}_{uid_to_image_name[i]}.png')
 
         with torch.no_grad():
@@ -191,9 +192,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         path = os.path.join(scene.model_path, 'masks') 
         os.mkdir(path) 
 
-    for i, mask in enumerate(all_residuals):
+    for i, mask in enumerate(all_residuals[:50]):
         to_pil = ToPILImage()
-        image = to_pil(loss_function(mask))
+        image = to_pil(torch.round(calculate_mask(mask)))
         image.save(f'{scene.model_path}/masks/mask_end_{uid_to_image_name[i]}.png')
         
 

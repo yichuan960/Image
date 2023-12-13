@@ -133,18 +133,19 @@ class RobustLoss(torch.nn.Module):
         self.linear3= torch.nn.Linear(1, 1, device = 'cuda:0')
         self.sigmoid3 = torch.nn.Sigmoid()
 
-        self.kernel_16 = 1/(16*16) * torch.ones((1,1,16,16)).cuda()
+        kernel_size = 16
+        self.kernel_16 = 1/(kernel_size*kernel_size) * torch.ones((1,1,kernel_size,16)).cuda()
         self.kernel_3 = torch.tensor([[1/9, 1/9, 1/9], [1/9, 1/9, 1/9], [1/9, 1/9, 1/9]]).unsqueeze(0).unsqueeze(0).cuda()
 
     def forward(self, residuals):
-        median_residual = torch.median(residuals)
-        inlier_loss = torch.where(residuals <= median_residual, 1.0, 1e-5)
-        #inlier_loss = residuals - torch.median(residuals.flatten())
+        #median_residual = torch.median(residuals)
+        #inlier_loss = torch.where(residuals <= median_residual, 1.0, 1e-5)
+        inlier_loss = residuals - torch.median(residuals.flatten())
         
         has_inlier_neighbors = torch.unsqueeze(inlier_loss, 0)
         has_inlier_neighbors = torch.nn.functional.conv2d(has_inlier_neighbors, self.kernel_3, padding = "same")
 
-        #has_inlier_neighbors = self.threshold(self.linear1, self.sigmoid1, has_inlier_neighbors)
+        has_inlier_neighbors = self.linear1(has_inlier_neighbors)
 
         if has_inlier_neighbors.shape[1] % 8 != 0:
             pad_h = 8 - (has_inlier_neighbors.shape[1] % 8) + 8
@@ -173,7 +174,7 @@ class RobustLoss(torch.nn.Module):
 
         is_inlier_patch = is_inlier_patch[ padding_indexing[0]:padding_indexing[1], padding_indexing[2]:padding_indexing[3] ]
 
-        #is_inlier_patch= self.threshold(self.linear2, self.sigmoid2, is_inlier_patch)
+        is_inlier_patch= self.linear2(is_inlier_patch)
 
         mask = (is_inlier_patch.squeeze() + has_inlier_neighbors.squeeze() + inlier_loss.squeeze()).cuda()
         mask = self.threshold(self.linear3, self.sigmoid3, mask)
