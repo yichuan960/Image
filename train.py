@@ -23,6 +23,7 @@ from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
 from robust_loss import calculate_mask
+from segment_overlap import segment_overlap
 from torchvision.transforms import ToPILImage
 import os
 import numpy as np
@@ -53,6 +54,7 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
     iter_start = torch.cuda.Event(enable_timing=True)
     iter_end = torch.cuda.Event(enable_timing=True)
 
+    epoch = 0
     viewpoint_stack = scene.getTrainCameras().copy()
     ema_loss_for_log = 0.0
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
@@ -91,6 +93,7 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         # Pick a random Camera
         if not viewpoint_stack:
             viewpoint_stack = scene.getTrainCameras().copy()
+            epoch += 1
         viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack) - 1))
 
         # Render
@@ -108,9 +111,15 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
 
         residuals = torch.linalg.vector_norm(image - gt_image, dim=(0))
         mask = calculate_mask(residuals)
+
+        if config["use_segmentation"]:
+            mask = segment_overlap(mask, viewpoint_cam.segments, config).to('cuda')
+
         old_mask = all_masks[viewpoint_cam.uid]
-        gt_image = gt_image * old_mask
-        image = image * old_mask
+
+        if epoch >= config["mask_start_epoch"]:
+            gt_image = gt_image * old_mask
+            image = image * old_mask
 
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
@@ -279,6 +288,8 @@ if __name__ == "__main__":
     # Load robust Gaussians config
     with open(args.config, 'r') as file:
         robust_params = json.load(file)
+    if not 'debug' in robust_params:
+        robust_params['debug'] = False
 
     # Start GUI server, configure and run training
     network_gui.init(args.ip, args.port)

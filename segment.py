@@ -114,6 +114,7 @@ def render_masks(path, image, masks):
     ax.imshow(img)
     plt.axis('off')
     plt.savefig(path, bbox_inches='tight')
+    plt.close()
 
 
 def main(args: argparse.Namespace) -> None:
@@ -154,8 +155,13 @@ def main(args: argparse.Namespace) -> None:
     os.makedirs(masks_path, exist_ok=True)
     os.makedirs(rendered_path, exist_ok=True)
 
+    resolution_scale = 8
+
     for t in tqdm(targets):
         image = cv2.imread(t)
+        resolution = [round(image.shape[1] / resolution_scale), round(image.shape[0] / resolution_scale)]
+        image = cv2.resize(image, resolution)
+
         if image is None:
             print(f"Could not load '{t}' as an image, skipping...")
             continue
