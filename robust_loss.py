@@ -145,8 +145,6 @@ class RobustLoss(torch.nn.Module):
         has_inlier_neighbors = torch.unsqueeze(inlier_loss, 0)
         has_inlier_neighbors = torch.nn.functional.conv2d(has_inlier_neighbors, self.kernel_3, padding = "same")
 
-        has_inlier_neighbors = self.linear1(has_inlier_neighbors)
-
         if has_inlier_neighbors.shape[1] % 8 != 0:
             pad_h = 8 - (has_inlier_neighbors.shape[1] % 8) + 8
         else:
@@ -173,8 +171,6 @@ class RobustLoss(torch.nn.Module):
             padding_indexing[3] = has_inlier_neighbors.shape[2] + padding_indexing[2]
 
         is_inlier_patch = is_inlier_patch[ padding_indexing[0]:padding_indexing[1], padding_indexing[2]:padding_indexing[3] ]
-
-        is_inlier_patch= self.linear2(is_inlier_patch)
 
         mask = (is_inlier_patch.squeeze() + has_inlier_neighbors.squeeze() + inlier_loss.squeeze()).cuda()
         mask = self.threshold(self.linear3, self.sigmoid3, mask)

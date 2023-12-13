@@ -66,6 +66,7 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
 
     # init masks
     all_residuals = torch.ones((len(viewpoint_stack), viewpoint_stack[0].image_height, viewpoint_stack[0].image_width), dtype=torch.float32, device="cuda")
+    all_masks = torch.ones((len(viewpoint_stack), viewpoint_stack[0].image_height, viewpoint_stack[0].image_width), dtype=torch.float32, device="cuda")
 
     uid_to_image_name = np.empty(len(viewpoint_stack), dtype=object)
     calculate_mask = RobustLoss()
@@ -125,9 +126,6 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         old_residual = all_residuals[viewpoint_cam.uid]
         mask = calculate_mask(old_residual)
 
-        if config["use_segmentation"]:
-            mask = segment_overlap(mask, viewpoint_cam.segments, config).to('cuda')
-
         #gt_image = gt_image * old_mask
         #image = image * old_mask
         gt_image = gt_image * mask
@@ -145,23 +143,41 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         optimizer_thresholds.step()
 
         mask = torch.round(mask)
+
+        if config["use_segmentation"]:
+            mask = segment_overlap(mask, viewpoint_cam.segments, config).to('cuda')
+
         gt_image = gt_image * mask
         image = image * mask
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
 
         all_residuals[viewpoint_cam.uid] = residuals
+        all_masks[viewpoint_cam.uid] = mask
         uid_to_image_name[viewpoint_cam.uid] = viewpoint_cam.image_name
         iter_end.record()
         if iteration % config["save_mask_interval"] == 0:
-            if not os.path.exists(os.path.join(scene.model_path, 'masks')):
-                path = os.path.join(scene.model_path, 'masks')
-                os.mkdir(path)
+            path = os.path.join(scene.model_path, 'masks')
+            log_mask_path = os.path.join(path, 'log_mask')
+            seg_mask_path = os.path.join(path, 'seg_mask')
 
+            if not os.path.exists(os.path.join(scene.model_path, 'masks')):
+                os.mkdir(path)
+                os.mkdir(log_mask_path)
+                os.mkdir(seg_mask_path)
+
+            # Save regression masks
             for i, mask in enumerate(all_residuals[:50]):
                 to_pil = ToPILImage()
-                image = to_pil(calculate_mask(mask))
-                image.save(f'{scene.model_path}/masks/mask_{iteration}_{uid_to_image_name[i]}.png')
+                log_mask = calculate_mask(mask)
+                image = to_pil(log_mask)
+                image.save(os.path.join(log_mask_path, f"mask_{iteration}_{uid_to_image_name[i]}.png"))
+
+            # Save mask after segmentation
+            for i, mask in enumerate(all_masks[:50]):
+                to_pil = ToPILImage()
+                image = to_pil(mask)
+                image.save(os.path.join(seg_mask_path, f"mask_{iteration}_{uid_to_image_name[i]}.png"))
 
         with torch.no_grad():
             # Progress bar

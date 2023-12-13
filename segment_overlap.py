@@ -7,7 +7,7 @@ def segment_overlap(mask, segments, config):
     segment_rles = [s['segmentation'] for s in segments]
     segment_areas = [s['area'] for s in segments]
 
-    mask = np.uint8(1) - np.copy(mask.cpu(), order='F')
+    mask = np.uint8(1) - np.copy(mask.detach().cpu(), order='F').astype(np.uint8)
 
     mask_rle = mask_util.encode(mask)
     intersections = [mask_util.merge([mask_rle, segment_rle], intersect=1) for segment_rle in segment_rles]
