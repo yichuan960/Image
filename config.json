@@ -1,8 +1,9 @@
 {
-  "save_mask_interval": 5000,
+  "save_mask_interval": 1000,
   "test_size": 19,
   "mask_start_epoch": 5,
-  "use_segmentation": true,
+  "use_segmentation": false,
   "seg_overlap": 0.50,
-  "debug": false
+  "debug": false,
+  "n_residuals": 5
 }

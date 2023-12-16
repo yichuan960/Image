@@ -121,17 +121,12 @@ def calculate_mask_proba(residuals):
 
 
 class RobustLoss(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, n_residuals = 1, hidden_size = 1):
         super(RobustLoss, self).__init__()
         # Define a learnable parameter
-        self.linear1 = torch.nn.Linear(1, 1, device = 'cuda:0')
+        self.linear1 = torch.nn.Linear(n_residuals + 1, hidden_size, device = 'cuda:0')
+        self.linear2 = torch.nn.Linear(hidden_size, 1, device = 'cuda:0')
         self.sigmoid1 = torch.nn.Sigmoid()
-
-        self.linear2 = torch.nn.Linear(1, 1, device = 'cuda:0')
-        self.sigmoid2 = torch.nn.Sigmoid()
-
-        self.linear3= torch.nn.Linear(1, 1, device = 'cuda:0')
-        self.sigmoid3 = torch.nn.Sigmoid()
 
         kernel_size = 16
         self.kernel_16 = 1/(kernel_size*kernel_size) * torch.ones((1,1,kernel_size,16)).cuda()
@@ -140,7 +135,7 @@ class RobustLoss(torch.nn.Module):
     def forward(self, residuals):
         #median_residual = torch.median(residuals)
         #inlier_loss = torch.where(residuals <= median_residual, 1.0, 1e-5)
-        inlier_loss = residuals - torch.median(residuals.flatten())
+        inlier_loss = residuals[0] - torch.median(residuals[0].flatten())
         
         has_inlier_neighbors = torch.unsqueeze(inlier_loss, 0)
         has_inlier_neighbors = torch.nn.functional.conv2d(has_inlier_neighbors, self.kernel_3, padding = "same")
@@ -173,13 +168,32 @@ class RobustLoss(torch.nn.Module):
         is_inlier_patch = is_inlier_patch[ padding_indexing[0]:padding_indexing[1], padding_indexing[2]:padding_indexing[3] ]
 
         mask = (is_inlier_patch.squeeze() + has_inlier_neighbors.squeeze() + inlier_loss.squeeze()).cuda()
-        mask = self.threshold(self.linear3, self.sigmoid3, mask)
+
+        #mask = self.threshold(self.linear1, self.sigmoid1, mask, residuals)
+
+        shape = mask.shape
+        res = torch.flatten(residuals, 1)
+        res = torch.transpose(res, 0, 1)
+
+        mask = mask.flatten().unsqueeze(1)
+
+        res = torch.cat((res, mask), 1)
+        mask = self.linear1(res)
+        #mask = self.linear2(mask)
+        mask = self.sigmoid1(mask)
+        mask = mask.reshape(shape)
 
         return mask
     
-    def threshold(self, linear, sigmoid, x):
+    def threshold(self, linear, sigmoid, x, residuals):
         shape = x.shape
-        x = linear(x.flatten().unsqueeze(1))
+        res = torch.flatten(residuals, 1)
+        res = torch.transpose(res, 0, 1)
+
+        x = x.flatten().unsqueeze(1)
+
+        res = torch.cat((res, x), 1)
+        x = linear(res)
         x = sigmoid(x)
         x = x.reshape(shape)
         return x

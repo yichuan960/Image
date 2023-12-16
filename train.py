@@ -65,13 +65,14 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
     first_iter += 1
 
     # init masks
-    all_residuals = torch.ones((len(viewpoint_stack), viewpoint_stack[0].image_height, viewpoint_stack[0].image_width), dtype=torch.float32, device="cuda")
+    old_residuals = torch.ones((len(viewpoint_stack), config['n_residuals'], viewpoint_stack[0].image_height, viewpoint_stack[0].image_width), dtype=torch.float32, device="cuda")
     all_masks = torch.ones((len(viewpoint_stack), viewpoint_stack[0].image_height, viewpoint_stack[0].image_width), dtype=torch.float32, device="cuda")
 
     uid_to_image_name = np.empty(len(viewpoint_stack), dtype=object)
-    calculate_mask = RobustLoss()
 
-    optimizer_thresholds = optim.SGD([{'params': calculate_mask.parameters()}], lr=0.1)
+    calculate_mask = RobustLoss(n_residuals=config['n_residuals'])
+
+    optimizer_thresholds = optim.Adam([{'params': calculate_mask.parameters()}], lr=0.1)
 
 
     for iteration in range(first_iter, opt.iterations + 1):
@@ -120,14 +121,11 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
 
         # break gradient from rendering
         with torch.no_grad():
-            residuals = torch.linalg.vector_norm(image - gt_image, dim=(0))
+            residual = torch.linalg.vector_norm(image - gt_image, dim=(0))
 
-        #mask = calculate_mask(residuals)
-        old_residual = all_residuals[viewpoint_cam.uid]
-        mask = calculate_mask(old_residual)
+        multiple_old_residual = old_residuals[viewpoint_cam.uid]
+        mask = calculate_mask(multiple_old_residual)
 
-        #gt_image = gt_image * old_mask
-        #image = image * old_mask
         gt_image = gt_image * mask
         image = image * mask
 
@@ -152,7 +150,10 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
 
-        all_residuals[viewpoint_cam.uid] = residuals
+        # shift array and store n old resudials
+        old_residuals = torch.roll(old_residuals, 1, 1)
+        old_residuals[viewpoint_cam.uid, 0] = residual
+
         all_masks[viewpoint_cam.uid] = mask
         uid_to_image_name[viewpoint_cam.uid] = viewpoint_cam.image_name
         iter_end.record()
@@ -167,9 +168,9 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
                 os.mkdir(seg_mask_path)
 
             # Save regression masks
-            for i, mask in enumerate(all_residuals[:50]):
+            for i, residual in enumerate(old_residuals[:50]):
                 to_pil = ToPILImage()
-                log_mask = calculate_mask(mask)
+                log_mask = calculate_mask(residual)
                 image = to_pil(log_mask)
                 image.save(os.path.join(log_mask_path, f"mask_{iteration}_{uid_to_image_name[i]}.png"))
 
@@ -223,7 +224,7 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         path = os.path.join(scene.model_path, 'masks')
         os.mkdir(path)
 
-    for i, mask in enumerate(all_residuals[:50]):
+    for i, mask in enumerate(old_residuals[:50]):
         to_pil = ToPILImage()
         image = to_pil(torch.round(calculate_mask(mask)))
         image.save(f'{scene.model_path}/masks/mask_end_{uid_to_image_name[i]}.png')
