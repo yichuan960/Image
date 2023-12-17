@@ -124,7 +124,8 @@ class RobustLoss(torch.nn.Module):
     def __init__(self, n_residuals = 1, hidden_size = 1):
         super(RobustLoss, self).__init__()
         # Define a learnable parameter
-        self.linear1 = torch.nn.Linear(n_residuals + 1, hidden_size, device = 'cuda:0')
+        self.n_residuals = n_residuals
+        self.linear1 = torch.nn.Linear(n_residuals, hidden_size, device = 'cuda:0')
         self.linear2 = torch.nn.Linear(hidden_size, 1, device = 'cuda:0')
         self.sigmoid1 = torch.nn.Sigmoid()
 
@@ -173,12 +174,15 @@ class RobustLoss(torch.nn.Module):
 
         shape = mask.shape
         res = torch.flatten(residuals, 1)
+        res = res[1:]
         res = torch.transpose(res, 0, 1)
 
-        mask = mask.flatten().unsqueeze(1)
+        
 
-        res = torch.cat((res, mask), 1)
-        mask = self.linear1(res)
+        mask = mask.flatten().unsqueeze(1)
+        if self.n_residuals > 1:
+            mask = torch.cat((res, mask), 1)
+        mask = self.linear1(mask)
         #mask = self.linear2(mask)
         mask = self.sigmoid1(mask)
         mask = mask.reshape(shape)

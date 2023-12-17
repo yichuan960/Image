@@ -72,7 +72,7 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
 
     calculate_mask = RobustLoss(n_residuals=config['n_residuals'])
 
-    optimizer_thresholds = optim.Adam([{'params': calculate_mask.parameters()}], lr=0.1)
+    optimizer_thresholds = optim.SGD([{'params': calculate_mask.parameters()}], lr=0.1)
 
 
     for iteration in range(first_iter, opt.iterations + 1):
@@ -126,8 +126,9 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         multiple_old_residual = old_residuals[viewpoint_cam.uid]
         mask = calculate_mask(multiple_old_residual)
 
-        gt_image = gt_image * mask
-        image = image * mask
+        if config["mask_start_epoch"] < epoch:
+            gt_image = gt_image * mask
+            image = image * mask
 
         Ll1 = l1_loss(image, gt_image)
         lambda_reg = 1e-1 #withoout additional layers
@@ -139,14 +140,19 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         optimizer_thresholds.zero_grad()
         loss_mask.backward()
         optimizer_thresholds.step()
+        #if config["mask_start_epoch"] < epoch:
+            
+            
 
         mask = torch.round(mask)
 
         if config["use_segmentation"]:
             mask = segment_overlap(mask, viewpoint_cam.segments, config).to('cuda')
 
-        gt_image = gt_image * mask
-        image = image * mask
+        if config["mask_start_epoch"] < epoch:
+            gt_image = gt_image * mask
+            image = image * mask
+
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
 
