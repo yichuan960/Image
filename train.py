@@ -65,12 +65,15 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
     first_iter += 1
 
     # init masks
-    old_residuals = torch.ones((len(viewpoint_stack), config['n_residuals'], viewpoint_stack[0].image_height, viewpoint_stack[0].image_width), dtype=torch.float32, device="cuda")
-    all_masks = torch.ones((len(viewpoint_stack), viewpoint_stack[0].image_height, viewpoint_stack[0].image_width), dtype=torch.float32, device="cuda")
+    channel_mask = 1
+    if config["per_channel"] == True:
+        channel_mask = 3
+    old_residuals = torch.ones((len(viewpoint_stack), config['n_residuals'], channel_mask, viewpoint_stack[0].image_height, viewpoint_stack[0].image_width), dtype=torch.float32, device="cuda")
+    all_masks = torch.ones((len(viewpoint_stack), channel_mask, viewpoint_stack[0].image_height, viewpoint_stack[0].image_width), dtype=torch.float32, device="cuda")
 
     uid_to_image_name = np.empty(len(viewpoint_stack), dtype=object)
 
-    calculate_mask = RobustLoss(n_residuals=config['n_residuals'])
+    calculate_mask = RobustLoss(n_residuals=config['n_residuals'], per_channel = True)
 
     optimizer_thresholds = optim.SGD([{'params': calculate_mask.parameters()}], lr=0.1)
 
@@ -118,31 +121,38 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
-
         # break gradient from rendering
+        residual = torch.zeros((3, gt_image.shape[1], gt_image.shape[2]), dtype=torch.float32)
         with torch.no_grad():
-            residual = torch.linalg.vector_norm(image - gt_image, dim=(0))
-
+            for i in range(channel_mask):
+                residual[i] = torch.linalg.vector_norm(image[i] - image[i], keepdim=True)
+            #residual = torch.linalg.vector_norm(image - gt_image, dim=0, keepdim=True)
         multiple_old_residual = old_residuals[viewpoint_cam.uid]
+
+        #mask = torch.zeros((channel_mask, viewpoint_stack[0].image_height, viewpoint_stack[0].image_width), dtype=torch.float32, device="cuda:0")
+        
         mask = calculate_mask(multiple_old_residual)
 
+        #mask = calculate_mask(multiple_old_residual)
+
         if config["mask_start_epoch"] < epoch:
+            """ for i in range(channel_mask):
+                gt_image[i] = gt_image[i] * mask[i]
+                image[i] = image[i] * mask[i] """
             gt_image = gt_image * mask
             image = image * mask
+            
 
         Ll1 = l1_loss(image, gt_image)
         lambda_reg = 1e-1 #withoout additional layers
         #lambda_reg = 1.5*1e-1
         #lambda_reg = 0
-        regularization = lambda_reg * torch.mean((1-mask).flatten())
+        regularization = lambda_reg * torch.mean((1-mask).flatten()) / 2
         loss_mask = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image)) + regularization
 
         optimizer_thresholds.zero_grad()
         loss_mask.backward()
-        optimizer_thresholds.step()
-        #if config["mask_start_epoch"] < epoch:
-            
-            
+        optimizer_thresholds.step()    
 
         mask = torch.round(mask)
 
@@ -150,6 +160,9 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
             mask = segment_overlap(mask, viewpoint_cam.segments, config).to('cuda')
 
         if config["mask_start_epoch"] < epoch:
+            """ for i in range(channel_mask):
+                gt_image[i] = gt_image[i] * mask[i]
+                image[i] = image[i] * mask[i] """
             gt_image = gt_image * mask
             image = image * mask
 
@@ -180,6 +193,7 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
                 image = to_pil(log_mask)
                 image.save(os.path.join(log_mask_path, f"mask_{iteration}_{uid_to_image_name[i]}.png"))
 
+
             # Save mask after segmentation
             for i, mask in enumerate(all_masks[:50]):
                 to_pil = ToPILImage()
@@ -201,7 +215,7 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
-
+            
             # Densification
             if iteration < opt.densify_until_iter:
                 # Keep track of max radii in image-space for pruning
