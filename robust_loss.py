@@ -142,14 +142,14 @@ class RobustLoss(torch.nn.Module):
         self.kernel_3 = kernel_3.view(1, 1, 3, 3).repeat(self.channel, self.channel, 1, 1).cuda()
 
     def forward(self, residuals):
-
-        #median_residual = torch.median(residuals)
-        #inlier_loss = torch.where(residuals <= median_residual, 1.0, 1e-5)
         medians = torch.median(residuals[0].flatten(start_dim=1), dim=1)[0]
-        for i in range(self.channel):
-            residuals[0, i] = residuals[0, i] - medians[i]
 
-        inlier_loss = residuals[0]
+        if self.per_channel == True:
+            for i in range(self.channel):
+                residuals[0, i] = residuals[0, i] - medians[i]
+            inlier_loss = residuals[0]
+        else:
+            inlier_loss = residuals[0] - torch.median(residuals[0].flatten())      
                 
         has_inlier_neighbors = torch.unsqueeze(inlier_loss, 0)
 
@@ -182,11 +182,13 @@ class RobustLoss(torch.nn.Module):
         if padding_indexing[3] == 0:
             padding_indexing[3] = has_inlier_neighbors.shape[3] + padding_indexing[2]
 
-        is_inlier_patch = is_inlier_patch[:, padding_indexing[0]:padding_indexing[1], padding_indexing[2]:padding_indexing[3] ]
+        if self.per_channel == True:
+            is_inlier_patch = is_inlier_patch[:, padding_indexing[0]:padding_indexing[1], padding_indexing[2]:padding_indexing[3] ]
+        else:
+            is_inlier_patch = is_inlier_patch[ padding_indexing[0]:padding_indexing[1], padding_indexing[2]:padding_indexing[3] ]
+            is_inlier_patch = is_inlier_patch.unsqueeze(0)
 
         mask = (is_inlier_patch.squeeze() + has_inlier_neighbors.squeeze() + inlier_loss.squeeze()).cuda()
-
-        #mask = self.threshold(self.linear1, self.sigmoid1, mask, residuals)
 
         shape = mask.shape
         res = torch.flatten(residuals, 1)
@@ -197,12 +199,13 @@ class RobustLoss(torch.nn.Module):
         if self.n_residuals > 1:
             mask = torch.cat((res, mask), 1)
         mask = self.linear1(mask)
-        #mask = self.linear2(mask)
         mask = self.sigmoid1(mask)
         mask = mask.reshape(shape)
-        mask = torch.median(mask, dim=0, keepdim=True)[0]
-        # mask = mask.reshape(shape[1:])
-        
+        if self.per_channel == True:
+            mask = torch.median(mask, dim=0, keepdim=True)[0]
+        else:
+            mask = mask.unsqueeze(0)
+
         return mask
     
     def threshold(self, linear, sigmoid, x, residuals):

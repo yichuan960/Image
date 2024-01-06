@@ -73,7 +73,7 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
 
     uid_to_image_name = np.empty(len(viewpoint_stack), dtype=object)
 
-    calculate_mask = RobustLoss(n_residuals=config['n_residuals'], per_channel = True)
+    calculate_mask = RobustLoss(n_residuals=config['n_residuals'], per_channel = config["per_channel"])
 
     optimizer_thresholds = optim.SGD([{'params': calculate_mask.parameters()}], lr=0.1)
 
@@ -122,19 +122,15 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
         # break gradient from rendering
-        residual = torch.zeros((3, gt_image.shape[1], gt_image.shape[2]), dtype=torch.float32)
+        residual = torch.zeros((channel_mask, gt_image.shape[1], gt_image.shape[2]), dtype=torch.float32)
         with torch.no_grad():
             for i in range(channel_mask):
                 residual[i] = torch.abs(image[i] - gt_image[i])
-                # residual[i] = torch.linalg.vector_norm(image[i] - gt_image[i], keepdim=True)
-            #residual = torch.linalg.vector_norm(image - gt_image, dim=0, keepdim=True)
+                
         multiple_old_residual = old_residuals[viewpoint_cam.uid]
-
-        #mask = torch.zeros((channel_mask, viewpoint_stack[0].image_height, viewpoint_stack[0].image_width), dtype=torch.float32, device="cuda:0")
         
         mask = calculate_mask(multiple_old_residual)
 
-        #mask = calculate_mask(multiple_old_residual)
 
         if config["mask_start_epoch"] < epoch:
             """ for i in range(channel_mask):
@@ -172,6 +168,7 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
 
         # shift array and store n old resudials
         old_residuals = torch.roll(old_residuals, 1, 1)
+
         old_residuals[viewpoint_cam.uid, 0] = residual
 
         all_masks[viewpoint_cam.uid] = mask
