@@ -125,7 +125,8 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         residual = torch.zeros((3, gt_image.shape[1], gt_image.shape[2]), dtype=torch.float32)
         with torch.no_grad():
             for i in range(channel_mask):
-                residual[i] = torch.linalg.vector_norm(image[i] - image[i], keepdim=True)
+                residual[i] = torch.abs(image[i] - gt_image[i])
+                # residual[i] = torch.linalg.vector_norm(image[i] - gt_image[i], keepdim=True)
             #residual = torch.linalg.vector_norm(image - gt_image, dim=0, keepdim=True)
         multiple_old_residual = old_residuals[viewpoint_cam.uid]
 
@@ -147,7 +148,7 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         lambda_reg = 1e-1 #withoout additional layers
         #lambda_reg = 1.5*1e-1
         #lambda_reg = 0
-        regularization = lambda_reg * torch.mean((1-mask).flatten()) / 2
+        regularization = lambda_reg * torch.mean((1-mask).flatten())
         loss_mask = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image)) + regularization
 
         optimizer_thresholds.zero_grad()
@@ -157,7 +158,7 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         mask = torch.round(mask)
 
         if config["use_segmentation"]:
-            mask = segment_overlap(mask, viewpoint_cam.segments, config).to('cuda')
+            mask = segment_overlap(mask.squeeze(), viewpoint_cam.segments, config).to('cuda')
 
         if config["mask_start_epoch"] < epoch:
             """ for i in range(channel_mask):

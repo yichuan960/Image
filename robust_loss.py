@@ -146,7 +146,7 @@ class RobustLoss(torch.nn.Module):
         #median_residual = torch.median(residuals)
         #inlier_loss = torch.where(residuals <= median_residual, 1.0, 1e-5)
         medians = torch.median(residuals[0].flatten(start_dim=1), dim=1)[0]
-        for i in range(3):
+        for i in range(self.channel):
             residuals[0, i] = residuals[0, i] - medians[i]
 
         inlier_loss = residuals[0]
@@ -199,9 +199,9 @@ class RobustLoss(torch.nn.Module):
         mask = self.linear1(mask)
         #mask = self.linear2(mask)
         mask = self.sigmoid1(mask)
-        mask = mask.reshape((shape[1], shape[2], shape[0]))
-        mask = torch.median(mask, keepdim = True)[0]
         mask = mask.reshape(shape)
+        mask = torch.median(mask, dim=0, keepdim=True)[0]
+        # mask = mask.reshape(shape[1:])
         
         return mask
     
