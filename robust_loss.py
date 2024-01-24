@@ -11,6 +11,8 @@ tensor = torch.randn((3, height, width), dtype=torch.float32)
 residuals = torch.linalg.vector_norm(tensor, dim=(0))
 
 def calculate_mask(residuals):
+    residuals = residuals.squeeze()
+
     median_residual = torch.median(residuals)
     inlier_loss = torch.where(residuals <= median_residual, 1.0, 0.0)
 

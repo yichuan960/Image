@@ -6,5 +6,7 @@
   "seg_overlap": 0.40,
   "debug": false,
   "n_residuals": 1,
-  "per_channel": false
+  "per_channel": false,
+  "use_neural": false,
+  "lambda_reg": 1e-1
 }
