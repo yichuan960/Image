@@ -130,8 +130,11 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         # break gradient from rendering
         residual = torch.zeros((channel_mask, gt_image.shape[1], gt_image.shape[2]), dtype=torch.float32)
         with torch.no_grad():
-            for i in range(channel_mask):
-                residual[i] = torch.abs(image[i] - gt_image[i])
+            if config["per_channel"] == True:
+                for i in range(channel_mask):
+                    residual[i] = torch.abs(image[i] - gt_image[i])
+            else:
+                residual[0] = torch.linalg.vector_norm(image - gt_image, dim=(0))
                 
         multiple_old_residual = old_residuals[viewpoint_cam.uid]
         
