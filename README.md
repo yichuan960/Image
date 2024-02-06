@@ -5,7 +5,7 @@ Armin Ettenhofer & Paul Ungermann (Technical University of Munich)
 
 Abstract: <i>Neural radiance fields (NeRFs) are vulnerable to dynamic objects polluting the input data of an otherwise static scene that should not be part of the learned scene representation called distractors. In our project, we adapt 3D Gaussian Splatting, a novel method to generate NeRFs, to be robust against such distractors. We achieve this by implementing a robust loss function. We create segmentation masks of distractor to ignore them during training. Using this robust loss and our adaptations, we obtain significantly better quantitative and qualitative results on distractor-polluted scenes than the original implementation of 3D Gaussian Splatting and RobustNeRF. </i>
 
-##Technical Tutorial
+## Technical Tutorial
 How to run 3D Gaussian Splatting in general see [here]([kh](https://github.com/graphdeco-inria/gaussian-splatting)). In addition to these features, we provide a config file to set parameters for robust training.
 
 config.json:
