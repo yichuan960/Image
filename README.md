@@ -21,6 +21,18 @@ LPIPS score for each scene, lower better. We can see that our method significant
         
 
 ## Qualitative Results
+We conduct five different versions to evaluate our method:
+- Gaussian Splat. (Baseline) 
+The unmodified implementation of 3D Gaussian Splatting
+- RobustNeRF: 
+A version of RobustNeRF implemented for 3D Gaussian Splatting.
+- RobustNeRF + Segmentation (+Segment.): 
+Sequentially adds the segmentation overlap improvements after calculating the mask using RobustNeRF but doesn’t use logistic regression.
+- RobustNeRF + Linear Layer (+Neural): 
+Sequentially adds a trainable linear layer after calculating the mask using RobustNeRF but doesn’t use segmentation.
+- RobustNeRF + Linear Layer + Segmentation (+Both):
+Our method.
+
 |Gaussian Splat.|RobustNeRF|+Neural|+Segment.|+Both|
 |---|---|---|---|---|
 | <img src="/assets/images/and_bot/baseline.png" width="150"/>| <img src="/assets/images/and_bot/robust.png" width="150"/> | <img src="/assets/images/and_bot/neural.png" width="150"/> | <img src="/assets/images/and_bot/seg.png" width="150"/> | <img src="/assets/images/and_bot/both.png" width="150"/> |
