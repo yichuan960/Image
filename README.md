@@ -62,4 +62,4 @@ config.json:
 | lambda_reg | regularization parameter for the mask loss |
 
 ## Data Preprocessing
-Before training the model you need to generate the object segmentation masks using SegmentAnything. You can use ```python3 segment.py --input <input path (use correct scale images!)> --output <path to dataset> --model-type vit_b --checkpoint <path>.ckpt``` to generate the object segmentation mask. Note that you need to install SegmentAnything. See [here](https://github.com/facebookresearch/segment-anything) for a tutorial.
+Before training the model you need to generate the object segmentation masks using SegmentAnything. You can use ```python3 segment.py --input <input path (use correct scale images!)> --output <path to dataset> --model-type vit_b --checkpoint <path>.ckpt``` to generate the object segmentation mask. Note that you need to install SegmentAnything and use the latest vit_b checkpoint. See [here](https://github.com/facebookresearch/segment-anything) for a tutorial.
