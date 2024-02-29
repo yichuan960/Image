@@ -46,7 +46,7 @@ Our method.
 
 
 ## Technical Tutorial
-How to run 3D Gaussian Splatting in general see [here]([kh](https://github.com/graphdeco-inria/gaussian-splatting)). In addition to these features, we provide a config file to set parameters for robust training.
+How to run 3D Gaussian Splatting in general see [here](https://github.com/graphdeco-inria/gaussian-splatting). In addition to these features, we provide a config file to set parameters for robust training. 
 
 config.json:
 |  key | value  | 
@@ -60,3 +60,6 @@ config.json:
 | per_channel | indicates if the mask is computed using all three image channel (true) |
 | use_neural | indicates if the neural approach will be used |
 | lambda_reg | regularization parameter for the mask loss |
+
+## Data Preprocessing
+Before training the model you need to generate the object segmentation masks using SegmentAnything. You can use ```python3 segment.py --input <input path (use correct scale images!)> --output <path to dataset> --model-type vit_b --checkpoint <path>.ckpt``` to generate the object segmentation mask. Note that you need to install SegmentAnything. See [here](https://github.com/facebookresearch/segment-anything) for a tutorial.
