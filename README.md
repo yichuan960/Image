@@ -1,5 +1,5 @@
 # Robust 3D Gaussian Splatting
-Armin Ettenhofer & Paul Ungermann (Technical University of Munich)
+Paul Ungermann, Armin Ettenhofer, Barbara Rössle, Matthias Nießner (Technical University of Munich)
 
 ---
 
@@ -46,13 +46,13 @@ Our method.
 
 
 ## Technical Tutorial
-How to run 3D Gaussian Splatting in general see [here]([kh](https://github.com/graphdeco-inria/gaussian-splatting)). In addition to these features, we provide a config file to set parameters for robust training.
+How to run 3D Gaussian Splatting in general see [here](https://github.com/graphdeco-inria/gaussian-splatting). In addition to these features, we provide a config file to set parameters for robust training. 
 
 config.json:
 |  key | value  | 
 |---|---|
 | save_mask_interval | interval (in number of interations) after a the mask should be saved (in /output/<model>/masks)  | 
-|  test_size |  number of test images | 
+|  test_size |  number of test images (assuming sorted images), if negative it uses every -n-th image for the test set | 
 |  mask_start_epoch |  number of epochs to start using the distractor masks |  
 | use_segmentation | flag to intersect the masks (true) or just using the raw masks (false) |
 | seg_overlap | indicates the minimum intersection ratio to classify an object as a distractor |
@@ -60,3 +60,6 @@ config.json:
 | per_channel | indicates if the mask is computed using all three image channel (true) |
 | use_neural | indicates if the neural approach will be used |
 | lambda_reg | regularization parameter for the mask loss |
+
+## Data Preprocessing
+Before training the model you need to generate the object segmentation masks using SegmentAnything. You can use ```python3 segment.py --input <input path (use correct scale images!)> --output <path to dataset> --model-type vit_b --checkpoint <path>.ckpt``` to generate the object segmentation mask. Note that you need to install SegmentAnything and use the latest vit_b checkpoint. See [here](https://github.com/facebookresearch/segment-anything) for a tutorial.
