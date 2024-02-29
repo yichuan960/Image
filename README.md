@@ -1,5 +1,5 @@
 # Robust 3D Gaussian Splatting
-Armin Ettenhofer & Paul Ungermann (Technical University of Munich)
+Paul Ungermann, Armin Ettenhofer, Barbara Rössle, Matthias Nießner (Technical University of Munich)
 
 ---
 
@@ -52,7 +52,7 @@ config.json:
 |  key | value  | 
 |---|---|
 | save_mask_interval | interval (in number of interations) after a the mask should be saved (in /output/<model>/masks)  | 
-|  test_size |  number of test images | 
+|  test_size |  number of test images (assuming sorted images), if negative it uses every -n-th image for the test set | 
 |  mask_start_epoch |  number of epochs to start using the distractor masks |  
 | use_segmentation | flag to intersect the masks (true) or just using the raw masks (false) |
 | seg_overlap | indicates the minimum intersection ratio to classify an object as a distractor |
