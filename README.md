@@ -58,7 +58,7 @@ config.json:
 | seg_overlap | indicates the minimum intersection ratio to classify an object as a distractor |
 | n_residuals | number of residuals from the last n iterations used to compute the mask |
 | per_channel | indicates if the mask is computed using all three image channel (true) |
-| use_neural | indicates if the neural approach will be used |
+| use_neural | indicates if the neural approach will be used. If set to false you need to set per_channel to false as well! |
 | lambda_reg | regularization parameter for the mask loss |
 
 ## Data Preprocessing
