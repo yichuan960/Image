@@ -1,5 +1,5 @@
 # Robust 3D Gaussian Splatting
-Paul Ungermann, Armin Ettenhofer, Barbara Rössle, Matthias Nießner (Technical University of Munich)
+Paul Ungermann, Armin Ettenhofer, Matthias Nießner, Barbara Rössle (Technical University of Munich)
 
 ---
 
@@ -46,7 +46,7 @@ Our method.
 
 
 ## Technical Tutorial
-How to run 3D Gaussian Splatting in general see [here](https://github.com/graphdeco-inria/gaussian-splatting). In addition to these features, we provide a config file to set parameters for robust training. 
+How to run 3D Gaussian Splatting in general see [here](https://github.com/graphdeco-inria/gaussian-splatting). In addition to these features, we provide a config file to set parameters for robust training. Use ```git clone https://github.com/ppaulee/Robust3DGaussians.git --recursive``` to clone the repository.
 
 config.json:
 |  key | value  | 
