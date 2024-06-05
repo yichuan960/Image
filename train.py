@@ -138,7 +138,7 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
                 
         multiple_old_residual = old_residuals[viewpoint_cam.uid]
         
-        mask = calculate_mask(multiple_old_residual)
+        mask, _ = calculate_mask(multiple_old_residual)
 
 
         if config["mask_start_epoch"] < epoch:
@@ -187,19 +187,35 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
             path = os.path.join(scene.model_path, 'masks')
             log_mask_path = os.path.join(path, 'log_mask')
             seg_mask_path = os.path.join(path, 'seg_mask')
+            before_log_mask_path = os.path.join(path, 'before_log')
 
             if not os.path.exists(os.path.join(scene.model_path, 'masks')):
                 os.mkdir(path)
                 os.mkdir(log_mask_path)
                 os.mkdir(seg_mask_path)
+                os.mkdir(before_log_mask_path)
+                
 
             # Save regression masks
             if config["use_neural"]:
+                for name, param in calculate_mask.named_parameters():
+                        if param.requires_grad:
+                            print(name, param.data)
                 for i, residual in enumerate(old_residuals[:50]):
                     to_pil = ToPILImage()
-                    log_mask = calculate_mask(residual)
+                    log_mask, before_log_mask = calculate_mask(residual)
                     image = to_pil(log_mask)
                     image.save(os.path.join(log_mask_path, f"mask_{iteration}_{uid_to_image_name[i]}.png"))
+
+                    to_pil = ToPILImage()
+                    #before_log_mask = before_log_mask.mean(axis=0)
+                    #print(before_log_mask)
+                    #print(before_log_mask.shape)
+                    before_log_mask = torch.clamp(before_log_mask, min = 0, max = 1)
+                    #before_log_mask = before_log_mask / torch.max(before_log_mask)
+                    before_log_mask = 1 - before_log_mask
+                    image = to_pil(before_log_mask)
+                    image.save(os.path.join(before_log_mask_path, f"mask_{iteration}_{uid_to_image_name[i]}.png"))
 
             # Save mask after segmentation
             if config["use_segmentation"]:
@@ -254,7 +270,8 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
 
     for i, mask in enumerate(old_residuals[:50]):
         to_pil = ToPILImage()
-        image = to_pil(torch.round(calculate_mask(mask)))
+        m = calculate_mask(mask)
+        image, _ = to_pil(torch.round(m))
         image.save(f'{scene.model_path}/masks/mask_end_{uid_to_image_name[i]}.png')
 
 

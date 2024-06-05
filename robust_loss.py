@@ -2,13 +2,9 @@ import torch
 import math
 import numpy as np
 import torch.nn as nn
+from torchvision.transforms import ToPILImage
+import os
 
-#tensor = torch.tensor([[[1, 2, 3], [4, 5, 6], [7, 8, 9]], [[1, 2, 3], [4, 5, 6], [7, 8, 9]] ,[[1, 2, 3], [4, 5, 6], [7, 8, 9]]], dtype=torch.float32)
-height = 16
-width = 16
-tensor = torch.randn((3, height, width), dtype=torch.float32)
-
-residuals = torch.linalg.vector_norm(tensor, dim=(0))
 
 def calculate_mask(residuals):
     residuals = residuals.squeeze()
@@ -62,13 +58,10 @@ kernel = torch.tensor([[1/9, 1/9, 1/9], [1/9, 1/9, 1/9], [1/9, 1/9, 1/9]]).unsqu
 kernel_16 = 1/(16*16) * torch.ones((1,1,16,16)).cuda()
 def calculate_mask_proba(residuals):
     median_residual = torch.median(residuals)
-    #inlier_loss = torch.where(residuals <= median_residual, 1.0, 0.0)
     inlier_loss = residuals
 
     has_inlier_neighbors = torch.unsqueeze(inlier_loss, 0)
     has_inlier_neighbors = torch.nn.functional.conv2d(has_inlier_neighbors, kernel, padding = "same")
-    #has_inlier_neighbors = torch.where(has_inlier_neighbors >= 0.5, 1.0, 0.0)
-
     
     if has_inlier_neighbors.shape[1] % 8 != 0:
         pad_h = 8 - (has_inlier_neighbors.shape[1] % 8) + 8
@@ -97,9 +90,6 @@ def calculate_mask_proba(residuals):
 
     is_inlier_patch = is_inlier_patch[ padding_indexing[0]:padding_indexing[1], padding_indexing[2]:padding_indexing[3] ]
 
-    #is_inlier_patch = torch.where(is_inlier_patch >= 0.6, 1.0, 0.0)
-
-    #mask = (is_inlier_patch.squeeze() + has_inlier_neighbors.squeeze() + inlier_loss.squeeze() >= 1e-3).cuda()
     mask = is_inlier_patch.squeeze() + has_inlier_neighbors.squeeze() + inlier_loss.squeeze()
     mask_median = torch.median(mask)
     mask = mask - mask_median
@@ -113,12 +103,6 @@ def calculate_mask_proba(residuals):
     mask = torch.nn.functional.conv2d(mask, kernel_smooth, padding = "same").squeeze()
     mask = torch.where(mask >= 0.6, 0.0, 1.0)
 
-    """kernel_size = 8
-    kernel = 1/(kernel_size*kernel_size) * torch.ones((1,1,kernel_size,kernel_size)).cuda()
-    mask = mask.unsqueeze(0)
-    mask = torch.nn.functional.conv2d(mask, kernel, padding = "same").squeeze()
-    mask = torch.where(mask >= 0.7, 1, 0) """
-
     return mask.cuda()
 
 
@@ -128,7 +112,6 @@ class RobustLoss(torch.nn.Module):
         # Define a learnable parameter
         self.n_residuals = n_residuals
         self.linear1 = torch.nn.Linear(n_residuals, hidden_size, device = 'cuda:0')
-        self.linear2 = torch.nn.Linear(hidden_size, 1, device = 'cuda:0')
         self.sigmoid1 = torch.nn.Sigmoid()
 
         self.per_channel = per_channel
@@ -191,6 +174,7 @@ class RobustLoss(torch.nn.Module):
             is_inlier_patch = is_inlier_patch.unsqueeze(0)
 
         mask = (is_inlier_patch.squeeze() + has_inlier_neighbors.squeeze() + inlier_loss.squeeze()).cuda()
+        mask_before_log = mask
 
         shape = mask.shape
         res = torch.flatten(residuals, 1)
@@ -208,7 +192,7 @@ class RobustLoss(torch.nn.Module):
         else:
             mask = mask.unsqueeze(0)
 
-        return mask
+        return mask, mask_before_log
     
     def threshold(self, linear, sigmoid, x, residuals):
         shape = x.shape
