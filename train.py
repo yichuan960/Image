@@ -138,7 +138,10 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
                 
         multiple_old_residual = old_residuals[viewpoint_cam.uid]
         
-        mask, _ = calculate_mask(multiple_old_residual)
+        if config['use_neural'] == False:
+            mask = calculate_mask(multiple_old_residual)
+        else:
+            mask, _ = calculate_mask(multiple_old_residual)
 
 
         if config["mask_start_epoch"] < epoch:
@@ -263,8 +266,11 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
 
     for i, mask in enumerate(old_residuals[:50]):
         to_pil = ToPILImage()
-        m = calculate_mask(mask)
-        image, _ = to_pil(torch.round(m))
+        if config['use_neural'] == False:
+            m = calculate_mask(mask).int()
+        else:
+            m, _ = calculate_mask(mask)
+        image = to_pil(torch.Tensor(m))
         image.save(f'{scene.model_path}/masks/mask_end_{uid_to_image_name[i]}.png')
 
 
