@@ -198,9 +198,6 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
 
             # Save regression masks
             if config["use_neural"]:
-                for name, param in calculate_mask.named_parameters():
-                        if param.requires_grad:
-                            print(name, param.data)
                 for i, residual in enumerate(old_residuals[:50]):
                     to_pil = ToPILImage()
                     log_mask, before_log_mask = calculate_mask(residual)
@@ -208,11 +205,7 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
                     image.save(os.path.join(log_mask_path, f"mask_{iteration}_{uid_to_image_name[i]}.png"))
 
                     to_pil = ToPILImage()
-                    #before_log_mask = before_log_mask.mean(axis=0)
-                    #print(before_log_mask)
-                    #print(before_log_mask.shape)
                     before_log_mask = torch.clamp(before_log_mask, min = 0, max = 1)
-                    #before_log_mask = before_log_mask / torch.max(before_log_mask)
                     before_log_mask = 1 - before_log_mask
                     image = to_pil(before_log_mask)
                     image.save(os.path.join(before_log_mask_path, f"mask_{iteration}_{uid_to_image_name[i]}.png"))
