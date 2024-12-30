@@ -23,14 +23,26 @@ import shutil
 
 def parse_args():
     parser = argparse.ArgumentParser(description="convert transforms.json to colmap.txt")
-
-    parser.add_argument("--width", default="4036", help="image width")
-    parser.add_argument("--height", default="3024", help="image height")
+    parser.add_argument("--camera_module", default="PINHOLE", help="camera module type")
     parser.add_argument("--images", default="images", help="input path to the images")
     parser.add_argument("--colmap_db", default="database.db", help="colmap database filename")
     args = parser.parse_args()
     return args
 
+def create_output():
+    # Setup output directories.
+    output_dir = f"/sparse/0/"
+    os.makedirs(output_dir, exist_ok=True)
+    camera_txt = f"/sparse/0/cameras.txt"
+    image_txt = f"/sparse/0/images.txt"
+    points3D_txt = f"/sparse/0/points3D.txt"
+    file1 = open(camera_txt, "w")
+    file1.close()
+    file2 = open(image_txt, "w")
+    file2.close()
+    file3 = open(points3D_txt, "w")
+    file3.close()
+    
 def do_system(arg):
     print(f"==== running: {arg}")
     err=os.system(arg)
@@ -39,19 +51,16 @@ def do_system(arg):
         sys.exit(err)
 
 def go_camera2colmap(args):
-    # TODO: change image size
-    H = int(args.height)
-    W = int(args.width)
-    
     blender2opencv = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
-    # 注意：最后输出的图片名字要按自然字典序排列，例：0, 1, 100, 101, 102, 2, 3...因为colmap内部是这么排序的
     fnames = list(sorted(os.listdir('images')))
     fname2pose = {}
     
     with open('transforms.json', 'r') as f:
         meta = json.load(f)
     
-    k1, k2, p1, p2 = meta['k1'], meta['k2'], meta['p1'], meta['p2']
+    H = meta['h']
+    W = meta['w']
+    k1, k2, k3, k4, p1, p2 = meta['k1'], meta['k2'], meta['k3'], meta['k4'], meta['p1'], meta['p2']
     fx = 0.5 * W / np.tan(0.5 * meta['camera_angle_x'])  # original focal length
     if 'camera_angle_y' in meta:
         fy = 0.5 * H / np.tan(0.5 * meta['camera_angle_y'])  # original focal length
@@ -63,22 +72,31 @@ def go_camera2colmap(args):
         cx = 0.5 * W
         cy = 0.5 * H
     with open('sparse/0/cameras.txt', 'w') as f:
-        f.write(f'1 OPENCV {W} {H} {fx} {fy} {cx} {cy} {k1} {k2} {p1} {p2}')
+        if args.camera_module == "PINHOLE":
+            f.write(f'1 PINHOLE {W} {H} {fx} {fy} {cx} {cy}')
+        elif args.camera_module == "SIMPLE_PINHOLE":
+            f.write(f'1 SIMPLE_PINHOLE {W} {H} {fx} {fy} {cx} {cy}')
+        elif args.camera_module == "SIMPLE_RADIAL":
+            f.write(f'1 SIMPLE_PINHOLE {W} {H} {fx} {fy} {cx} {cy} {k1}')
+        elif args.camera_module == "RADIAL":
+            f.write(f'1 SIMPLE_PINHOLE {W} {H} {fx} {fy} {cx} {cy} {k1} {k2}')
+        elif args.camera_module == "OPENCV":
+            f.write(f'1 OPENCV {W} {H} {fx} {fy} {cx} {cy} {k1} {k2} {p1} {p2}')
+        elif args.camera_module == "OPENCV_FISHEYE":
+            f.write(f'1 OPENCV {W} {H} {fx} {fy} {cx} {cy} {k1} {k2} {k3} {k4}')
         idx = 1
         for frame in meta['frames']:
             fname = frame['file_path'].split('/')[-1]
             if not (fname.endswith('.png') or fname.endswith('.jpg') or fname.endswith('.JPG')):
                 fname += '.png'
-            # blend到opencv的转换：y轴和z轴方向翻转
+            # blend to opencv
             pose = np.array(frame['transform_matrix']) @ blender2opencv
             fname2pose.update({fname: pose})
     
     with open('sparse/0/images.txt', 'w') as f:
         for fname in fnames:
             pose = fname2pose[fname]
-            # 参考https://blog.csdn.net/weixin_44120025/article/details/124604229：colmap中相机坐标系和世界坐标系是相反的
-            # blender中：world = R * camera + T; colmap中：camera = R * world + T
-            # 因此转换公式为
+            # blender：world = R * camera + T; colmap：camera = R * world + T
             # R’ = R^-1
             # t’ = -R^-1 * t
             R = np.linalg.inv(pose[:3, :3])
@@ -104,15 +122,20 @@ def run_colmap(args):
     images=args.images
     do_system(f"colmap exhaustive_matcher --database_path {db}")
     do_system(f"colmap point_triangulator --database_path {db} --image_path {images} --input_path sparse/0 --output_path sparse/0")
-	
-if __name__ == "__main__":
+
+def transform_data():
     args = parse_args()
+    # Output /sparse/0
+    create_output()
+    # Get camera Intrinsics & Extrinsics
     go_camera2colmap(args)
-    print(f"go_camera2colmap finish")
+    # extract features
     extract_features(args)
     print(f"extract_features finish")
     transform_colmap_camera.camTodatabase("sparse/0/cameras.txt")
-    print(f"transform_colmap_camera finish")
+    # match features
     run_colmap(args)
     print(f"outputting to sparse/0")
 	
+if __name__ == "__main__":
+    transform_data()
