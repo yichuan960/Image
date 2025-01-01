@@ -11,6 +11,10 @@
 
 import os
 import sys
+import cv2
+from imageio import imread,imsave
+from sklearn.cluster import AgglomerativeClustering
+from sklearn.neighbors import kneighbors_graph
 from PIL import Image
 from typing import NamedTuple
 from scene.colmap_loader import read_extrinsics_text, read_intrinsics_text, qvec2rotmat, \
@@ -36,6 +40,7 @@ class CameraInfo(NamedTuple):
     width: int
     height: int
     segments: dict
+    features: list
 
 
 class SceneInfo(NamedTuple):
@@ -70,7 +75,7 @@ def getNerfppNorm(cam_info):
     return {"translate": translate, "radius": radius}
 
 
-def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, mask_folder):
+def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, mask_folder , cluster):
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write('\r')
@@ -87,6 +92,9 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, mask_folder
         R = np.transpose(qvec2rotmat(extr.qvec))
         T = np.array(extr.tvec)
 
+        fx, fy, cx, cy = intr.params[0], intr.params[1], intr.params[2], intr.params[3]
+        K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+
         if intr.model == "SIMPLE_PINHOLE":
             focal_length_x = intr.params[0]
             FovY = focal2fov(focal_length_x, height)
@@ -96,23 +104,78 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, mask_folder
             focal_length_y = intr.params[1]
             FovY = focal2fov(focal_length_y, height)
             FovX = focal2fov(focal_length_x, width)
+        if intr.model == "SIMPLE_RADIAL":
+            params = np.array([intr.params[4]], dtype=np.float32)
+        elif intr.model == "RADIAL":
+            params = np.array([intr.params[4], intr.params[5], 0.0, 0.0], dtype=np.float32)
+        elif intr.model == "OPENCV":
+            params = np.array([intr.params[4], intr.params[5], intr.params[6], intr.params[7]], dtype=np.float32)
+        elif intr.model == "OPENCV_FISHEYE":
+            params = np.array([intr.params[4], intr.params[5], intr.params[6], intr.params[7]], dtype=np.float32)
         else:
-            assert False, "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
+            assert False, "Colmap camera model not handled: only (PINHOLE SIMPLE_PINHOLE SIMPLE_RADIAL RADIAL OPENCV OPENCV_FISHEYE cameras) supported!"
 
         image_path = os.path.join(images_folder, os.path.basename(extr.name))
+        image = imread(image_path)[..., :3]
+
+        # undistortion
+        # params == 0 means no distortion
+        if len(params) > 0:
+            K_undist, roi_undist = cv2.getOptimalNewCameraMatrix(
+                K, params, (width, height), 0
+            )
+            mapx, mapy = cv2.initUndistortRectifyMap(
+                K, params, None, K_undist, (width, height), cv2.CV_32FC1
+            )
+            # Images are distorted. Undistort them.
+            image_distorted = cv2.remap(image, mapx, mapy, cv2.INTER_LINEAR)
+            x, y, w, h = roi_undist
+            image_distorted = image_distorted[y: y + h, x: x + w]
+            imsave(image_path,image_distorted)
+
         image_name = os.path.basename(image_path).split(".")[0]
         image = Image.open(image_path)
 
         with open(os.path.join(mask_folder, os.path.basename(extr.name).split('.')[0] + '.json'), 'r') as file:
             segments = json.load(file)
 
+        # Get SD features
+        features = []
+        load_keyword = "clutter"
+
+        imdirectory = "images"
+        image_id = extr.name.split(".")[-2]
+        cid = extr.camera_id
+        if extr.name.find(load_keyword) != -1:
+            feature_path = os.path.join(
+                os.path.join(images_folder, "SD"), f"{image_id}.npy"
+            )
+            feature = np.load(feature_path)
+            if cluster:
+                ft_flat = np.transpose(feature.reshape((1280, 50 * 50)), (1, 0))
+                x = np.linspace(0, 1, 50)
+                y = np.linspace(0, 1, 50)
+                xv, yv = np.meshgrid(x, y)
+                indxy = np.reshape(np.stack([xv, yv], axis=-1), (50 * 50, 2))
+                knn_graph = kneighbors_graph(indxy, 8, include_self=False)
+                model = AgglomerativeClustering(
+                    linkage="ward", connectivity=knn_graph, n_clusters=100
+                )
+                model.fit(ft_flat)
+                feature = np.array(
+                    [model.labels_ == i for i in range(model.n_clusters)],
+                    dtype=np.float32,
+                ).reshape((model.n_clusters, 50, 50))
+            features.append(feature)
+        else:
+            features.append([])
+
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
                               image_path=image_path, image_name=image_name, width=width, height=height,
-                              segments=segments)
+                              segments=segments,features=features)
         cam_infos.append(cam_info)
     sys.stdout.write('\n')
     return cam_infos
-
 
 def fetchPly(path):
     plydata = PlyData.read(path)
@@ -156,7 +219,7 @@ def readColmapSceneInfo(path, images, eval, config):
     reading_dir = "images" if images == None else images
     mask_dir = os.path.join(path, 'segments', 'masks')
     cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics,
-                                           images_folder=os.path.join(path, reading_dir), mask_folder=mask_dir)
+                                           images_folder=os.path.join(path, reading_dir), mask_folder=mask_dir, cluster=config['cluster'])
     cam_infos = sorted(cam_infos_unsorted.copy(), key=lambda x: x.image_name)
 
     if eval:

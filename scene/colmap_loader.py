@@ -21,11 +21,12 @@ BaseImage = collections.namedtuple(
     "Image", ["id", "qvec", "tvec", "camera_id", "name", "xys", "point3D_ids"])
 Point3D = collections.namedtuple(
     "Point3D", ["id", "xyz", "rgb", "error", "image_ids", "point2D_idxs"])
+# Edit SIMPLE_RADIAL from 4->5  RADIAL 5->8
 CAMERA_MODELS = {
     CameraModel(model_id=0, model_name="SIMPLE_PINHOLE", num_params=3),
     CameraModel(model_id=1, model_name="PINHOLE", num_params=4),
-    CameraModel(model_id=2, model_name="SIMPLE_RADIAL", num_params=4),
-    CameraModel(model_id=3, model_name="RADIAL", num_params=5),
+    CameraModel(model_id=2, model_name="SIMPLE_RADIAL", num_params=5),
+    CameraModel(model_id=3, model_name="RADIAL", num_params=8),
     CameraModel(model_id=4, model_name="OPENCV", num_params=8),
     CameraModel(model_id=5, model_name="OPENCV_FISHEYE", num_params=8),
     CameraModel(model_id=6, model_name="FULL_OPENCV", num_params=12),
@@ -168,7 +169,6 @@ def read_intrinsics_text(path):
                 elems = line.split()
                 camera_id = int(elems[0])
                 model = elems[1]
-                assert model == "PINHOLE", "While the loader support other types, the rest of the code assumes PINHOLE"
                 width = int(elems[2])
                 height = int(elems[3])
                 params = np.array(tuple(map(float, elems[4:])))
