@@ -52,10 +52,11 @@ def do_system(arg):
 
 def go_camera2colmap(args):
     blender2opencv = np.array([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
-    fnames = list(sorted(os.listdir('images')))
+    images_path = args.images + "/images"
+    fnames = list(sorted(os.listdir(images_path)))
     fname2pose = {}
-    
-    with open('transforms.json', 'r') as f:
+    transform_path = args.images + "/transforms.json"
+    with open(transform_path, 'r') as f:
         meta = json.load(f)
     
     H = meta['h']
@@ -71,7 +72,8 @@ def go_camera2colmap(args):
     else:
         cx = 0.5 * W
         cy = 0.5 * H
-    with open('sparse/0/cameras.txt', 'w') as f:
+    camera_path = args.images + "/sparse/0/cameras.txt"
+    with open(camera_path, 'w') as f:
         if args.camera_module == "PINHOLE":
             f.write(f'1 PINHOLE {W} {H} {fx} {fy} {cx} {cy}')
         elif args.camera_module == "SIMPLE_PINHOLE":
@@ -92,8 +94,9 @@ def go_camera2colmap(args):
             # blend to opencv
             pose = np.array(frame['transform_matrix']) @ blender2opencv
             fname2pose.update({fname: pose})
-    
-    with open('sparse/0/images.txt', 'w') as f:
+
+    image_path = args.images + "/sparse/0/images.txt"
+    with open(image_path, 'w') as f:
         for fname in fnames:
             pose = fname2pose[fname]
             # blender：world = R * camera + T; colmap：camera = R * world + T
@@ -108,20 +111,23 @@ def go_camera2colmap(args):
     
             f.write(f'{idx} {q0} {q1} {q2} {q3} {T[0]} {T[1]} {T[2]} 1 {fname}\n\n')
             idx += 1
-    
-    with open('sparse/0/points3D.txt', 'w') as f:
+
+    points_path = args.images + "/sparse/0/points3D.txt"
+    with open(points_path, 'w') as f:
        f.write('')
 
 def extract_features(args):
-    db=args.colmap_db
-    images=args.images
+    db = args.colmap_db
+    images = args.images + "/images"
     do_system(f"colmap feature_extractor --ImageReader.camera_model OPENCV --ImageReader.single_camera 1 --database_path {db} --image_path {images}")
 
 def run_colmap(args):
     db=args.colmap_db
-    images=args.images
+    images = args.images + "/images"
+    input_path = args.images + "/sparse/0"
+    output_path = args.images + "/sparse/0"
     do_system(f"colmap exhaustive_matcher --database_path {db}")
-    do_system(f"colmap point_triangulator --database_path {db} --image_path {images} --input_path sparse/0 --output_path sparse/0")
+    do_system(f"colmap point_triangulator --database_path {db} --image_path {images} --input_path {input_path} --output_path {output_path}")
 
 def transform_data():
     args = parse_args()
