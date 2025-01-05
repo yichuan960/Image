@@ -224,8 +224,6 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         else:
             mask, _ = calculate_mask(multiple_old_residual)
 
-        # combine spotless mask with robust mask
-        mask = mask * pred_mask
 
         if config["mask_start_epoch"] < epoch:
             """ for i in range(channel_mask):
@@ -246,6 +244,9 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
             optimizer_thresholds.step()
 
             mask = torch.round(mask)
+
+        # combine spotless mask with robust mask
+        mask = mask * pred_mask
 
         #if config["use_segmentation"]:
         #    mask = segment_overlap(mask.squeeze(), viewpoint_cam.segments, config).to('cuda')
