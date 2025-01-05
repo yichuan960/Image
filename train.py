@@ -26,11 +26,13 @@ from robust_loss import calculate_mask_proba, RobustLoss
 from robust_loss import calculate_mask as calculate_mask_old
 from segment_overlap import segment_overlap
 from torchvision.transforms import ToPILImage
-import os
 import numpy as np
 import json
 import gc
+
 import torch.optim as optim
+import torch.nn as nn
+import torch.nn.functional as F
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -38,6 +40,45 @@ try:
     TENSORBOARD_FOUND = True
 except ImportError:
     TENSORBOARD_FOUND = False
+
+def robust_mask(
+    self, error_per_pixel: torch.Tensor, loss_threshold: float
+) -> torch.Tensor:
+    epsilon = 1e-3
+    error_per_pixel = error_per_pixel.mean(axis=-1, keepdims=True)
+    error_per_pixel = error_per_pixel.squeeze(-1).unsqueeze(0)
+    is_inlier_pixel = (error_per_pixel < loss_threshold).float()
+    window_size = 3
+    channel = 1
+    window = torch.ones((1, 1, window_size, window_size), dtype=torch.float) / (
+        window_size * window_size
+    )
+    if error_per_pixel.is_cuda:
+        window = window.cuda(error_per_pixel.get_device())
+    window = window.type_as(error_per_pixel)
+    has_inlier_neighbors = F.conv2d(
+        is_inlier_pixel, window, padding=window_size // 2, groups=channel
+    )
+    has_inlier_neighbors = (has_inlier_neighbors > 0.5).float()
+    is_inlier_pixel = ((has_inlier_neighbors + is_inlier_pixel) > epsilon).float()
+    pred_mask = is_inlier_pixel.squeeze(0).unsqueeze(-1)
+    return pred_mask
+
+def robust_cluster_mask(self, inlier_sf, semantics):
+    inlier_sf = inlier_sf.squeeze(-1).unsqueeze(0)
+    cluster_size = torch.sum(
+        semantics, axis=[-1, -2], keepdims=True, dtype=torch.float
+    )
+    inlier_cluster_size = torch.sum(
+        inlier_sf * semantics, axis=[-1, -2], keepdims=True, dtype=torch.float
+    )
+    cluster_inlier_percentage = (inlier_cluster_size / cluster_size).float()
+    is_inlier_cluster = (cluster_inlier_percentage > 0.5).float()
+    inlier_sf = torch.sum(
+        semantics * is_inlier_cluster, axis=1, keepdims=True, dtype=torch.float
+    )
+    pred_mask = inlier_sf.squeeze(0).unsqueeze(-1)
+    return pred_mask
 
 
 def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint,
@@ -127,6 +168,46 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
 
+        # Spotless original images & pixels
+        gt_image_s = torch.from_numpy(gt_image).float()
+        pixels = gt_image_s.to("cuda") / 255.0
+
+        # Spotless colors
+        if image.shape[-1] == 4:
+            colors, depths = image[..., 0:3], image[..., 3:4]
+        else:
+            colors, depths = image, None
+
+        # Spotless points & means3d
+        points_t = scene.getPoints().astype(np.float32)
+        points = torch.from_numpy(points_t).float()
+        means3d = torch.nn.Parameter(points)
+
+        # init running_stats
+        n_gauss = len(means3d)
+        running_stats = {
+            "grad2d": torch.zeros(n_gauss, device="cuda"),  # norm of the gradient
+            "count": torch.zeros(n_gauss, device="cuda", dtype=torch.int),
+            "hist_err": torch.zeros((10000,)),
+            "avg_err": 1.0,
+            "lower_err": 0.0,
+            "upper_err": 1.0,
+            "sqrgrad": torch.zeros(n_gauss, device="cuda"),
+        }
+
+        error_per_pixel = torch.abs(colors - pixels)
+        pred_mask = robust_mask(
+            error_per_pixel, running_stats["avg_err"]
+        )
+        semantics = torch.from_numpy(viewpoint_cam.features[0]).float()
+        sf = semantics.to("cuda")
+        # cluster the semantic feature and mask based on cluster voting
+        sf = nn.Upsample(
+            size=(colors.shape[1], colors.shape[2]),
+            mode="nearest",
+        )(sf).squeeze(0)
+        pred_mask = robust_cluster_mask(pred_mask, semantics=sf)
+
         # break gradient from rendering
         residual = torch.zeros((channel_mask, gt_image.shape[1], gt_image.shape[2]), dtype=torch.float32)
         with torch.no_grad():
@@ -143,6 +224,8 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         else:
             mask, _ = calculate_mask(multiple_old_residual)
 
+        # combine spotless mask with robust mask
+        mask = mask * pred_mask
 
         if config["mask_start_epoch"] < epoch:
             """ for i in range(channel_mask):
@@ -164,8 +247,8 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
 
             mask = torch.round(mask)
 
-        if config["use_segmentation"]:
-            mask = segment_overlap(mask.squeeze(), viewpoint_cam.segments, config).to('cuda')
+        #if config["use_segmentation"]:
+        #    mask = segment_overlap(mask.squeeze(), viewpoint_cam.segments, config).to('cuda')
 
         if config["mask_start_epoch"] < epoch:
             """ for i in range(channel_mask):
