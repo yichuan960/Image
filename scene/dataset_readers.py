@@ -75,7 +75,7 @@ def getNerfppNorm(cam_info):
     return {"translate": translate, "radius": radius}
 
 
-def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, mask_folder , cluster):
+def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, mask_folder , clutter):
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write('\r')
@@ -105,12 +105,28 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, mask_folder
             FovY = focal2fov(focal_length_y, height)
             FovX = focal2fov(focal_length_x, width)
         if intr.model == "SIMPLE_RADIAL":
+            focal_length_x = intr.params[0]
+            focal_length_y = intr.params[1]
+            FovY = focal2fov(focal_length_y, height)
+            FovX = focal2fov(focal_length_x, width)
             params = np.array([intr.params[4]], dtype=np.float32)
         elif intr.model == "RADIAL":
+            focal_length_x = intr.params[0]
+            focal_length_y = intr.params[1]
+            FovY = focal2fov(focal_length_y, height)
+            FovX = focal2fov(focal_length_x, width)
             params = np.array([intr.params[4], intr.params[5], 0.0, 0.0], dtype=np.float32)
         elif intr.model == "OPENCV":
+            focal_length_x = intr.params[0]
+            focal_length_y = intr.params[1]
+            FovY = focal2fov(focal_length_y, height)
+            FovX = focal2fov(focal_length_x, width)
             params = np.array([intr.params[4], intr.params[5], intr.params[6], intr.params[7]], dtype=np.float32)
         elif intr.model == "OPENCV_FISHEYE":
+            focal_length_x = intr.params[0]
+            focal_length_y = intr.params[1]
+            FovY = focal2fov(focal_length_y, height)
+            FovX = focal2fov(focal_length_x, width)
             params = np.array([intr.params[4], intr.params[5], intr.params[6], intr.params[7]], dtype=np.float32)
         else:
             assert False, "Colmap camera model not handled: only (PINHOLE SIMPLE_PINHOLE SIMPLE_RADIAL RADIAL OPENCV OPENCV_FISHEYE cameras) supported!"
@@ -143,15 +159,14 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, mask_folder
         features = []
         load_keyword = "clutter"
 
-        imdirectory = "images"
         image_id = extr.name.split(".")[-2]
-        cid = extr.camera_id
+        sd_folder = images_folder.rsplit(os.sep,1)[0]
         if extr.name.find(load_keyword) != -1:
             feature_path = os.path.join(
-                os.path.join(images_folder, "SD"), f"{image_id}.npy"
+                os.path.join(sd_folder, "SD"), f"{image_id}.npy"
             )
             feature = np.load(feature_path)
-            if cluster:
+            if clutter:
                 ft_flat = np.transpose(feature.reshape((1280, 50 * 50)), (1, 0))
                 x = np.linspace(0, 1, 50)
                 y = np.linspace(0, 1, 50)
@@ -219,7 +234,7 @@ def readColmapSceneInfo(path, images, eval, config):
     reading_dir = "images" if images == None else images
     mask_dir = os.path.join(path, 'segments', 'masks')
     cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics,
-                                           images_folder=os.path.join(path, reading_dir), mask_folder=mask_dir, cluster=config['cluster'])
+                                           images_folder=os.path.join(path, reading_dir), mask_folder=mask_dir, clutter=config['clutter'])
     cam_infos = sorted(cam_infos_unsorted.copy(), key=lambda x: x.image_name)
 
     if eval:
