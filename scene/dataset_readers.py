@@ -75,7 +75,7 @@ def getNerfppNorm(cam_info):
     return {"translate": translate, "radius": radius}
 
 
-def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, mask_folder , clutter):
+def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, mask_folder , clutter , factor):
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write('\r')
@@ -94,6 +94,10 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, mask_folder
 
         fx, fy, cx, cy = intr.params[0], intr.params[1], intr.params[2], intr.params[3]
         K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+        if int(factor) > 1:
+            K[:2, :] /= factor
+            height = height // factor
+            width = width // factor
 
         if intr.model == "SIMPLE_PINHOLE":
             focal_length_x = intr.params[0]
@@ -234,7 +238,7 @@ def readColmapSceneInfo(path, images, eval, config):
     reading_dir = "images" if images == None else images
     mask_dir = os.path.join(path, 'segments', 'masks')
     cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics,
-                                           images_folder=os.path.join(path, reading_dir), mask_folder=mask_dir, clutter=config['clutter'])
+                                           images_folder=os.path.join(path, reading_dir), mask_folder=mask_dir, clutter=config['clutter'], factor=config['factor'])
     cam_infos = sorted(cam_infos_unsorted.copy(), key=lambda x: x.image_name)
 
     if eval:
@@ -242,14 +246,21 @@ def readColmapSceneInfo(path, images, eval, config):
             train_cam_infos = [c for idx, c in enumerate(cam_infos) if idx >= config['test_size']]
             test_cam_infos = [c for idx, c in enumerate(cam_infos) if idx < config['test_size']]
         else:
-            train_cam_infos = [c for idx, c in enumerate(cam_infos) if c.image_name.find(config['train_keyword'])]
-            test_cam_infos = [c for idx, c in enumerate(cam_infos) if c.image_name.find(config['test_keyword'])]
+            train_cam_infos = []
+            test_cam_infos = []
+            for idx, c in enumerate(cam_infos):
+                if c.image_name.find(config['train_keyword']) != -1:
+                    train_cam_infos.append(c)
+                else:
+                    test_cam_infos.append(c)
+            #train_cam_infos = [c for idx, c in enumerate(cam_infos) if c.image_name.find(config['train_keyword'])]
+            #test_cam_infos = [c for idx, c in enumerate(cam_infos) if c.image_name.find(config['test_keyword'])]
     else:
         train_cam_infos = cam_infos
         test_cam_infos = []
+
     print(len(train_cam_infos))
     print(len(test_cam_infos))
-    
     # Only load 1 camera for debugging
     if "debug" in config and config["debug"]:
         if len(test_cam_infos) >= 1:

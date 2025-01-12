@@ -43,8 +43,11 @@ class Scene:
         self.test_cameras = {}
         self.points = BasicPointCloud
 
+        image_path = args.images
+        if (config['factor'] > 1):
+            image_path = args.images + "_8"
         if os.path.exists(os.path.join(args.source_path, "sparse")):
-            scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval, config)
+            scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, image_path, args.eval, config)
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
             print("Found transforms_train.json file, assuming Blender data set!")
             scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval)
