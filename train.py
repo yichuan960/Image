@@ -46,8 +46,8 @@ def robust_mask(
     error_per_pixel: torch.Tensor, loss_threshold: float
 ) -> torch.Tensor:
     epsilon = 1e-3
-    error_per_pixel = error_per_pixel.mean(axis=0, keepdims=True)
-    error_per_pixel = error_per_pixel.squeeze(-1).unsqueeze(0)
+    error_per_pixel = error_per_pixel.mean(axis=0, keepdims=True) #[1,431,431]
+    error_per_pixel = error_per_pixel.unsqueeze(0) # [1,1,431,431]
     is_inlier_pixel = (error_per_pixel < loss_threshold).float()
     window_size = 3
     channel = 1
@@ -59,10 +59,10 @@ def robust_mask(
     window = window.type_as(error_per_pixel)
     has_inlier_neighbors = F.conv2d(
         is_inlier_pixel, window, padding=window_size // 2, groups=channel
-    )
+    ) # [1,1,431,431]
     has_inlier_neighbors = (has_inlier_neighbors > 0.5).float()
     is_inlier_pixel = ((has_inlier_neighbors + is_inlier_pixel) > epsilon).float()
-    pred_mask = is_inlier_pixel.squeeze(0).unsqueeze(-1)
+    pred_mask = is_inlier_pixel.squeeze(0).unsqueeze(-1) # [1,431,431,1]
     return pred_mask
 
 def robust_cluster_mask(inlier_sf, semantics):
@@ -175,52 +175,20 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         else:
             colors, depths = image, None
 
-        # Spotless points
-        points_t = scene.getPoints().points
-        points = torch.from_numpy(points_t).float()
-        means3d = torch.nn.Parameter(points)
-
-        # init running_stats
-        n_gauss = len(means3d)
-        running_stats = {
-            "grad2d": torch.zeros(n_gauss, device="cuda"),  # norm of the gradient
-            "count": torch.zeros(n_gauss, device="cuda", dtype=torch.int),
-            "hist_err": torch.zeros((10000,)),
-            "avg_err": 1.0,
-            "lower_err": 0.0,
-            "upper_err": 1.0,
-            "sqrgrad": torch.zeros(n_gauss, device="cuda"),
-        }
-
-        error_per_pixel = torch.abs(colors - pixels)
+        error_per_pixel = torch.abs(colors - pixels) # colors pixels error_per_pixel [3,431,431]
         pred_mask = robust_mask(
-            error_per_pixel, running_stats["avg_err"]
+            error_per_pixel, 1.0
         )
-        semantics = torch.from_numpy(np.array(viewpoint_cam.features[0])).float()
+        semantics = torch.from_numpy(np.array(viewpoint_cam.features[0])).float() # 100 50 50
         sf = semantics.to("cuda")
         sf_t = sf.unsqueeze(0)
         # cluster the semantic feature and mask based on cluster voting
         sf_f = nn.Upsample(
             size=(colors.shape[1], colors.shape[2]),
             mode="nearest",
-        )(sf_t).squeeze(0)
+        )(sf_t).squeeze(0) #[100 431 431]
         pred_mask = robust_cluster_mask(pred_mask, semantics=sf_f)
-
-        # break gradient from rendering
-        # residual = torch.zeros((channel_mask, gt_image.shape[1], gt_image.shape[2]), dtype=torch.float32)
-        # with torch.no_grad():
-        #     if config["per_channel"] == True:
-        #         for i in range(channel_mask):
-        #             residual[i] = torch.abs(image[i] - gt_image[i])
-        #     else:
-        #         residual[0] = torch.linalg.vector_norm(image - gt_image, dim=(0))
-        #
-        # multiple_old_residual = old_residuals[viewpoint_cam.uid]
-        #
-        # if config['use_neural'] == False:
-        #     mask = calculate_mask(multiple_old_residual)
-        # else:
-        #     mask, _ = calculate_mask(multiple_old_residual)
+        log_pred_mask = pred_mask.clone()
 
 
         # if config["mask_start_epoch"] < epoch:
@@ -248,6 +216,7 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
 
         # combine spotless mask with robust mask
         mask = mask_s * pred_mask
+        log_mask = mask.clone()
         # mask = pred_mask
 
         # if config["mask_start_epoch"] < epoch:
@@ -262,8 +231,7 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         # # ssimloss = 1.0 - ssim(
         # #     pixels, colors
         # # )
-        # loss_mask = rgbloss
-        # loss_mask.backward(retain_graph=True)
+        # rgbloss.backward()
 
         if config["mask_start_epoch"] < epoch:
             """ for i in range(channel_mask):
@@ -317,11 +285,11 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
             # if config["use_segmentation"]:
             #     for i, mask in enumerate(all_masks[:50]):
             to_pil = ToPILImage()
-            image = to_pil(mask)
+            image = to_pil(log_mask)
             image.save(os.path.join(seg_mask_path, f"mask_{iteration}_{uid_to_image_name[image_id]}.png"))
 
             to_pil = ToPILImage()
-            pre_mask = to_pil(pred_mask)
+            pre_mask = to_pil(log_pred_mask)
             pre_mask.save(os.path.join(pre_mask_path, f"mask_{iteration}_{uid_to_image_name[image_id]}.png"))
 
         with torch.no_grad():
