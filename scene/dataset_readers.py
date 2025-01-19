@@ -136,22 +136,22 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, mask_folder
             assert False, "Colmap camera model not handled: only (PINHOLE SIMPLE_PINHOLE SIMPLE_RADIAL RADIAL OPENCV OPENCV_FISHEYE cameras) supported!"
 
         image_path = os.path.join(images_folder, os.path.basename(extr.name))
-        image = imread(image_path)[..., :3]
+        #image = imread(image_path)[..., :3]
 
         # undistortion
         # params == 0 means no distortion
-        if len(params) > 0:
-            K_undist, roi_undist = cv2.getOptimalNewCameraMatrix(
-                K, params, (width, height), 0
-            )
-            mapx, mapy = cv2.initUndistortRectifyMap(
-                K, params, None, K_undist, (width, height), cv2.CV_32FC1
-            )
-            # Images are distorted. Undistort them.
-            image_distorted = cv2.remap(image, mapx, mapy, cv2.INTER_LINEAR)
-            x, y, w, h = roi_undist
-            image_distorted = image_distorted[y: y + h, x: x + w]
-            imsave(image_path,image_distorted)
+        # if len(params) > 0:
+        #     K_undist, roi_undist = cv2.getOptimalNewCameraMatrix(
+        #         K, params, (width, height), 0
+        #     )
+        #     mapx, mapy = cv2.initUndistortRectifyMap(
+        #         K, params, None, K_undist, (width, height), cv2.CV_32FC1
+        #     )
+        #     # Images are distorted. Undistort them.
+        #     image_distorted = cv2.remap(image, mapx, mapy, cv2.INTER_LINEAR)
+        #     x, y, w, h = roi_undist
+        #     image_distorted = image_distorted[y: y + h, x: x + w]
+        #     imsave(image_path,image_distorted)
 
         image_name = os.path.basename(image_path).split(".")[0]
         image = Image.open(image_path)
@@ -186,6 +186,9 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, mask_folder
                     dtype=np.float32,
                 ).reshape((model.n_clusters, 50, 50))
             features.append(feature)
+            # if extr.name == "2clutter000.JPG":
+            #     print(feature.shape)
+            #     print(np.nonzero(feature))
         else:
             features.append([])
 

@@ -10,6 +10,8 @@
 #
 
 import os
+
+import imageio
 import torch
 from random import randint
 from utils.loss_utils import l1_loss, ssim
@@ -46,8 +48,8 @@ def robust_mask(
     error_per_pixel: torch.Tensor, loss_threshold: float
 ) -> torch.Tensor:
     epsilon = 1e-3
-    error_per_pixel = error_per_pixel.mean(axis=0, keepdims=True) #[1,431,431]
-    error_per_pixel = error_per_pixel.unsqueeze(0) # [1,1,431,431]
+    error_per_pixel = error_per_pixel.mean(axis=-1, keepdims=True) #[1,431,431,1]
+    error_per_pixel = error_per_pixel.squeeze(-1).unsqueeze(0) # [1,1,431,431]
     is_inlier_pixel = (error_per_pixel < loss_threshold).float()
     window_size = 3
     channel = 1
@@ -72,7 +74,7 @@ def robust_cluster_mask(inlier_sf, semantics):
     cluster_inlier_percentage = (inlier_cluster_size / cluster_size).float()
     is_inlier_cluster = (cluster_inlier_percentage > 0.5).float()
     inlier_sf = torch.sum(semantics * is_inlier_cluster, axis=1, keepdims=True, dtype=torch.float)
-    pred_mask = inlier_sf.squeeze(0)
+    pred_mask = inlier_sf.squeeze(0).unsqueeze(-1)
     return pred_mask
 
 
@@ -100,24 +102,12 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
 
-    # # init masks
-    # channel_mask = 1
-    # if config["per_channel"] == True:
-    #     channel_mask = 3
-    # old_residuals = torch.ones(
-    #     (len(viewpoint_stack), config['n_residuals'], channel_mask, viewpoint_stack[0].image_height, viewpoint_stack[0].image_width),
-    #     dtype=torch.float32, device="cuda")
-    # all_masks = torch.ones((len(viewpoint_stack), channel_mask, viewpoint_stack[0].image_height, viewpoint_stack[0].image_width),
-    #                        dtype=torch.float32, device="cuda")
-    #
+    running_stats = {
+        "hist_err": torch.zeros((10000,)),
+        "avg_err": 1.0,
+    }
+
     uid_to_image_name = np.empty(len(viewpoint_stack), dtype=object)
-    #
-    # if config['use_neural']:
-    #     calculate_mask = RobustLoss(n_residuals=config['n_residuals'], per_channel = config["per_channel"])
-    #
-    #     optimizer_thresholds = optim.SGD([{'params': calculate_mask.parameters()}], lr=0.1)
-    # else:
-    #     calculate_mask = calculate_mask_old
 
     for iteration in range(first_iter, opt.iterations + 1):
         if network_gui.conn is None:
@@ -164,20 +154,16 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
 
-        # Spotless original images & pixels
-        gt_image_t = gt_image.cpu()
-        gt_image_s = torch.from_numpy(gt_image_t.numpy()).float()
-        pixels = gt_image_s.to("cuda") / 255.0
+        pixels = gt_image
 
         # Spotless colors
-        if image.shape[-1] == 4:
-            colors, depths = image[..., 0:3], image[..., 3:4]
-        else:
-            colors, depths = image, None
+        colors = image[:3, ...]
 
         error_per_pixel = torch.abs(colors - pixels) # colors pixels error_per_pixel [3,431,431]
+        error_per_pixel = error_per_pixel.permute(1,2,0).unsqueeze(0) # [1,431,431,3]
+        # print(error_per_pixel)
         pred_mask = robust_mask(
-            error_per_pixel, 1.0
+            error_per_pixel, running_stats["avg_err"]
         )
         semantics = torch.from_numpy(np.array(viewpoint_cam.features[0])).float() # 100 50 50
         sf = semantics.to("cuda")
@@ -188,70 +174,32 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
             mode="nearest",
         )(sf_t).squeeze(0) #[100 431 431]
         pred_mask = robust_cluster_mask(pred_mask, semantics=sf_f)
+        input_mask = pred_mask.clone()
         log_pred_mask = pred_mask.clone()
 
 
-        # if config["mask_start_epoch"] < epoch:
-        #     """ for i in range(channel_mask):
-        #         gt_image[i] = gt_image[i] * mask[i]
-        #         image[i] = image[i] * mask[i] """
-        #     gt_image = gt_image * mask
-        #     image = image * mask
-        #
-        #
-        # if config['use_neural']:
-        #     Ll1 = l1_loss(image, gt_image)
-        #     lambda_reg = config['lambda_reg']  # withoout additional layers
-        #     regularization = lambda_reg * torch.mean((1 - mask).flatten())
-        #     loss_mask = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image)) + regularization
-        #
-        #     optimizer_thresholds.zero_grad()
-        #     loss_mask.backward(retain_graph=True)
-        #     optimizer_thresholds.step()
-        #
-        #     mask = torch.round(mask)
-
         #if config["use_segmentation"]:
-        mask_s = segment_overlap(pred_mask.squeeze(), viewpoint_cam.segments, config).to('cuda')
+        mask_s = segment_overlap(input_mask.squeeze(), viewpoint_cam.segments, config).to('cuda') #[432,432]
+        log_mask_s = mask_s.clone().unsqueeze(-1).unsqueeze(0)
 
         # combine spotless mask with robust mask
-        mask = mask_s * pred_mask
+        mask = (mask_s.clone().unsqueeze(-1).unsqueeze(0)) * pred_mask #[1,378,504,1]
         log_mask = mask.clone()
-        # mask = pred_mask
 
-        # if config["mask_start_epoch"] < epoch:
-        #     """ for i in range(channel_mask):
-        #         gt_image[i] = gt_image[i] * mask[i]
-        #         image[i] = image[i] * mask[i] """
-        #     gt_image = gt_image * mask
-        #     image = image * mask
-        #
-        # rgbloss = (pred_mask.clone().detach() * error_per_pixel).mean()
-        # # ssim = StructuralSimilarityIndexMeasure(data_range=1.0).to("cuda")
-        # # ssimloss = 1.0 - ssim(
-        # #     pixels, colors
-        # # )
-        # rgbloss.backward()
-
-        if config["mask_start_epoch"] < epoch:
-            """ for i in range(channel_mask):
-                gt_image[i] = gt_image[i] * mask[i]
-                image[i] = image[i] * mask[i] """
-            gt_image = gt_image * mask
-            image = image * mask
-
-        gaussians.optimizer.zero_grad(set_to_none=True)
-        Ll1 = l1_loss(image, gt_image)
-        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+        rgbloss = (mask.clone().detach() * error_per_pixel).mean()
+        loss = rgbloss
         loss.backward()
 
-        # shift array and store n old resudials
-        # old_residuals = torch.roll(old_residuals, 1, 1)
-        # old_residuals[viewpoint_cam.uid, 0] = residual
-        #
-        # all_masks[viewpoint_cam.uid] = mask
         uid_to_image_name[viewpoint_cam.uid] = viewpoint_cam.image_name
         iter_end.record()
+        running_stats["err"] = torch.histogram(
+                torch.mean(torch.abs(colors.clone().permute(1,2,0).unsqueeze(0) - pixels.clone().permute(1,2,0).unsqueeze(0)), dim=-3).clone().detach().cpu(),
+                bins=10000,
+                range=(0.0, 1.0),
+            )[0]
+        new_his,new_avg = update_running_stats(running_stats)
+        running_stats["hist_err"] = new_his
+        running_stats["avg_err"] = new_avg
         if iteration % config["save_mask_interval"] == 0:
             path = os.path.join(scene.model_path, 'masks')
             #log_mask_path = os.path.join(path, 'log_mask')
@@ -265,32 +213,29 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
                 os.mkdir(seg_mask_path)
                 #os.mkdir(before_log_mask_path)
                 os.mkdir(pre_mask_path)
-                
 
-            # Save regression masks
-            # if config["use_neural"]:
-            #     for i, residual in enumerate(old_residuals[:50]):
-            #         to_pil = ToPILImage()
-            #         log_mask, before_log_mask = calculate_mask(residual)
-            #         image = to_pil(log_mask)
-            #         image.save(os.path.join(log_mask_path, f"mask_{iteration}_{uid_to_image_name[i]}.png"))
-            #
-            #         to_pil = ToPILImage()
-            #         before_log_mask = torch.clamp(before_log_mask, min = 0, max = 1)
-            #         before_log_mask = 1 - before_log_mask
-            #         image = to_pil(before_log_mask)
-            #         image.save(os.path.join(before_log_mask_path, f"mask_{iteration}_{uid_to_image_name[i]}.png"))
-
-            # Save mask after segmentation
-            # if config["use_segmentation"]:
-            #     for i, mask in enumerate(all_masks[:50]):
-            to_pil = ToPILImage()
-            image = to_pil(log_mask)
-            image.save(os.path.join(seg_mask_path, f"mask_{iteration}_{uid_to_image_name[image_id]}.png"))
-
-            to_pil = ToPILImage()
-            pre_mask = to_pil(log_pred_mask)
-            pre_mask.save(os.path.join(pre_mask_path, f"mask_{iteration}_{uid_to_image_name[image_id]}.png"))
+            rgb_pred_mask = (
+                (log_pred_mask > 0.5).repeat(1, 1, 1, 3).clone().detach()
+            )
+            rgb_mask_s = (
+                (log_mask_s > 0.5).repeat(1, 1, 1, 3).clone().detach()
+            )
+            rgb_mask = (
+                (log_mask > 0.5).repeat(1, 1, 1, 3).clone().detach()
+            )
+            log_pixels = pixels.clone().permute(1,2,0).unsqueeze(0)
+            log_colors = colors.clone().permute(1,2,0).unsqueeze(0)
+            canvas = (
+                torch.cat([log_pixels, rgb_pred_mask, rgb_mask_s, rgb_mask, log_colors], dim=2)
+                .squeeze(0)
+                .cpu()
+                .detach()
+                .numpy()
+            )
+            imageio.imwrite(
+                f"{pre_mask_path}/train_{viewpoint_cam.image_name}.png",
+                (canvas * 255).astype(np.uint8),
+            )
 
         with torch.no_grad():
             # Progress bar
@@ -302,8 +247,8 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
                 progress_bar.close()
 
             # Log and save
-            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end),
-                            testing_iterations, scene, render, (pipe, background))
+            #training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end),
+            #                testing_iterations, scene, render, (pipe, background))
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
@@ -336,15 +281,18 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         path = os.path.join(scene.model_path, 'masks')
         os.mkdir(path)
 
-    # for i, mask in enumerate(old_residuals[:50]):
-    #     to_pil = ToPILImage()
-    #     if config['use_neural'] == False:
-    #         m = calculate_mask(mask).int()
-    #     else:
-    #         m, _ = calculate_mask(mask)
-    #     image = to_pil(torch.Tensor(m))
-    #     image.save(f'{scene.model_path}/masks/mask_end_{uid_to_image_name[i]}.png')
-
+def update_running_stats(info):
+    """Update running stats."""
+    info["hist_err"] = (
+        0.95 * info["hist_err"] + info["err"]
+    )
+    mid_err = torch.sum(info["hist_err"]) * 0.7
+    info["avg_err"] = torch.linspace(0, 1, 10000 + 1)[
+        torch.where(torch.cumsum(info["hist_err"], 0) >= mid_err)[0][
+            0
+        ]
+    ]
+    return info["hist_err"],info["avg_err"]
 
 def prepare_output_and_logger(args, dataset, opt, pipe, config):
     if not args.model_path:
