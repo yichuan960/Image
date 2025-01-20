@@ -159,12 +159,19 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         # Spotless colors
         colors = image[:3, ...]
 
+        first_colors = colors.clone().permute(1,2,0).unsqueeze(0)
+
+        # if viewpoint_cam.image_name == "2clutter1":
+        #     print(pixels.permute(1,2,0).unsqueeze(0))
+
         error_per_pixel = torch.abs(colors - pixels) # colors pixels error_per_pixel [3,431,431]
         error_per_pixel = error_per_pixel.permute(1,2,0).unsqueeze(0) # [1,431,431,3]
+        log_error_per_pixel = error_per_pixel.clone()
         # print(error_per_pixel)
         pred_mask = robust_mask(
             error_per_pixel, running_stats["avg_err"]
         )
+        log_pred_mask_test = pred_mask.clone()
         semantics = torch.from_numpy(np.array(viewpoint_cam.features[0])).float() # 100 50 50
         sf = semantics.to("cuda")
         sf_t = sf.unsqueeze(0)
@@ -200,7 +207,7 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
         new_his,new_avg = update_running_stats(running_stats)
         running_stats["hist_err"] = new_his
         running_stats["avg_err"] = new_avg
-        if iteration % config["save_mask_interval"] == 0:
+        if iteration % config["save_mask_interval"] == 0 or iteration == 1:
             path = os.path.join(scene.model_path, 'masks')
             #log_mask_path = os.path.join(path, 'log_mask')
             seg_mask_path = os.path.join(path, 'seg_mask')
@@ -214,7 +221,11 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
                 #os.mkdir(before_log_mask_path)
                 os.mkdir(pre_mask_path)
 
-            rgb_pred_mask = (
+            rgb_pred_mask_1 = (
+                (log_pred_mask_test > 0.5).repeat(1, 1, 1, 3).clone().detach()
+            )
+
+            rgb_pred_mask_2 = (
                 (log_pred_mask > 0.5).repeat(1, 1, 1, 3).clone().detach()
             )
             rgb_mask_s = (
@@ -225,8 +236,14 @@ def training(dataset, opt, pipe, config, testing_iterations, saving_iterations, 
             )
             log_pixels = pixels.clone().permute(1,2,0).unsqueeze(0)
             log_colors = colors.clone().permute(1,2,0).unsqueeze(0)
+            if iteration == 1:
+                temp = torch.cat([log_pixels, first_colors, log_error_per_pixel, rgb_pred_mask_1, rgb_pred_mask_2, rgb_mask_s, rgb_mask, log_colors], dim=2)
+            else:
+                temp = torch.cat(
+                    [log_pixels, log_error_per_pixel, rgb_pred_mask_1, rgb_pred_mask_2, rgb_mask_s,
+                     rgb_mask, log_colors], dim=2)
             canvas = (
-                torch.cat([log_pixels, rgb_pred_mask, rgb_mask_s, rgb_mask, log_colors], dim=2)
+                temp
                 .squeeze(0)
                 .cpu()
                 .detach()

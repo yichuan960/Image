@@ -12,7 +12,7 @@
 import os
 import sys
 import cv2
-from imageio import imread,imsave
+import imageio
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.neighbors import kneighbors_graph
 from PIL import Image
@@ -22,6 +22,7 @@ from scene.colmap_loader import read_extrinsics_text, read_intrinsics_text, qvec
 from utils.graphics_utils import getWorld2View2, focal2fov, fov2focal
 import numpy as np
 import json
+import torch
 from pathlib import Path
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import SH2RGB
@@ -136,11 +137,16 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, mask_folder
             assert False, "Colmap camera model not handled: only (PINHOLE SIMPLE_PINHOLE SIMPLE_RADIAL RADIAL OPENCV OPENCV_FISHEYE cameras) supported!"
 
         image_path = os.path.join(images_folder, os.path.basename(extr.name))
-        #image = imread(image_path)[..., :3]
+        #image_dis_path = os.path.join("E:\AI\Robust3DGaussians\data\on-the-go\yoda\distorted", os.path.basename(extr.name))
+        # image = imageio.imread(image_path)[..., :3]
 
         # undistortion
         # params == 0 means no distortion
         # if len(params) > 0:
+        #     #print(intr.model)
+        #     if extr.name.split('.')[0] == "2clutter1":  # 311 0
+        #         pixels = torch.from_numpy(image).float().to("cuda") / 255.0
+        #         print(pixels)
         #     K_undist, roi_undist = cv2.getOptimalNewCameraMatrix(
         #         K, params, (width, height), 0
         #     )
@@ -151,7 +157,18 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, mask_folder
         #     image_distorted = cv2.remap(image, mapx, mapy, cv2.INTER_LINEAR)
         #     x, y, w, h = roi_undist
         #     image_distorted = image_distorted[y: y + h, x: x + w]
-        #     imsave(image_path,image_distorted)
+        #     pixels2 = torch.from_numpy(image_distorted).float().to("cuda") / 255.0
+        #     canvas2 = (
+        #         pixels2
+        #         .squeeze(0)
+        #         .cpu()
+        #         .detach()
+        #         .numpy()
+        #     )
+        #     if extr.name.split('.')[0] == "2clutter1":  # 311 0
+        #         pixels2 = torch.from_numpy(image_distorted).float().to("cuda") / 255.0
+        #         print(pixels2)
+        #     imageio.imwrite(image_dis_path,(canvas2 * 255).astype(np.uint8),)
 
         image_name = os.path.basename(image_path).split(".")[0]
         image = Image.open(image_path)
